@@ -326,6 +326,7 @@
     <p>Myror vandrar längs kanten av din sandgrop. Tryck/klicka nära gropens kant för att knuffa in dem, och tryck på myror som redan ramlat ner för att slänga sand på dem så de glider ner till botten – där du fångar dem!</p>
     <p>Din energi sjunker hela tiden. Fånga myror för att fylla på den. Ju fler poäng du får, desto större blir myrlejonet – och då kan det äta ännu större byten.</p>
     <p>⚡ Kraftmätaren fylls var 350:e poäng. När den är full – tryck på den för att skaka hela gropen och dra ner alla myror på en gång!</p>
+    <p>⚠ Akta dig för <b>stekeln</b> (gul med ränder) – får den ner till botten sticker den dig! Låt bli att knuffa/trycka ner den. 🌧 Ibland <b>regnar</b> det: då blir sanden hård en stund och myrorna ramlar inte ner förrän den torkat.</p>
     <button class="playBtn" id="playBtn">Starta spelet</button>
     <button class="secondaryBtn" id="settingsBtn">⚙ Inställningar</button>
     <div class="hint">Fungerar med mus eller touch – testa gärna på mobilen 📱</div>
@@ -364,10 +365,11 @@
   "use strict";
 
   /* ============ CONFIG ============ */
+  const HORIZON_FRAC = 0.42; // marklinjens andel av skärmhöjden (mer himmel = större värde)
   const CONFIG = {
     energyMax: 100,
-    energyDrainBase: 2.0,
-    energyDrainPerLevel: 0.32,
+    energyDrainBase: 1.6,
+    energyDrainPerLevel: 0.30,
     spawnIntervalBase: 1.7,
     spawnIntervalMin: 0.5,
     spawnIntervalLevelFactor: 0.11,
@@ -387,6 +389,11 @@
     powerChargeTarget: 350,
     screenShakeDuration: 0.55,
     screenShakeMag: 14,
+    rainDuration: 4.0,        // hur länge det regnar
+    dryDuration: 3.0,         // torktid efter regn (sanden fortsatt hård)
+    rainIntervalMin: 20,      // sekunder mellan regnskurar
+    rainIntervalMax: 34,
+    wetSlipMult: 0.55,        // myrorna glider ner långsammare när sanden är blöt
   };
 
   /* ============ GROWTH & PREY ============ */
@@ -411,6 +418,8 @@
     large:  { sizeBase: 15, minStage: 2, score: 32, energy: 28, speedMult: 0.80, climbMult: 1.18, waisted: false, mandibles: true,  weight: 3,  color: '#3f6b2e', colorDark: '#213a16' },
     huge:   { sizeBase: 20, minStage: 3, score: 55, energy: 42, speedMult: 0.68, climbMult: 1.30, waisted: false, mandibles: true,  weight: 1,  color: '#3a6d82', colorDark: '#1c3844' },
     purple: { sizeBase: 9,  minStage: 0, score: 25, energy: 16, speedMult: 1.30, climbMult: 1.05, waisted: true,  mandibles: false, weight: 1.5, color: '#7a3f9e', colorDark: '#3f1f52' },
+    // STEKEL: fiende! Får man ner den i botten sticker den myrlejonet. Undvik att knuffa/dra ner den.
+    wasp:   { sizeBase: 13, minStage: 1, score: 0,  energy: 0,  speedMult: 1.10, climbMult: 2.10, waisted: true,  mandibles: false, weight: 1.4, color: '#e6b422', colorDark: '#2a2206', hostile: true, wasp: true, fallMult: 0.35 },
   };
   function pickPreyType(){
     const stage = growthStageIndex(score);
@@ -419,6 +428,11 @@
     let r = Math.random()*total;
     for(const k of keys){ r -= PREY_TYPES[k].weight; if(r <= 0) return k; }
     return keys[0];
+  }
+  function countHostiles(){
+    let n = 0;
+    for(const a of ants){ if(a.hostile && a.state !== 'caught') n++; }
+    return n;
   }
 
   /* ============ SETTINGS ============ */
@@ -440,17 +454,41 @@
   let cssW = 0, cssH = 0, dpr = 1;
 
   /* ---- background decor (regenerated per screen size) ---- */
-  let decor = { clouds: [], grass: [], pebbles: [] };
+  let decor = { clouds: [], grass: [], pebbles: [], hills: [], bushes: [] };
   function makeDecor(){
-    const groundY = cssH * 0.30;
+    const groundY = cssH * HORIZON_FRAC;
     decor.clouds = [];
-    const nClouds = 3 + Math.floor(cssW/500);
+    const nClouds = 4 + Math.floor(cssW/380);
     for(let i=0;i<nClouds;i++){
       decor.clouds.push({
         x: Math.random()*cssW,
-        y: groundY * (0.15 + Math.random()*0.45),
-        scale: 0.7 + Math.random()*0.9,
-        speed: 4 + Math.random()*7
+        y: groundY * (0.10 + Math.random()*0.60),
+        scale: 0.6 + Math.random()*1.0,
+        speed: 3 + Math.random()*8
+      });
+    }
+    // två lager av mjuka kullar längs horisonten
+    decor.hills = [];
+    for(let layer=0; layer<2; layer++){
+      const bumps = [];
+      const n = 3 + Math.floor(cssW/260) + layer;
+      for(let i=0;i<=n;i++){
+        bumps.push({
+          x: (cssW/n)*i + rand(-40,40),
+          h: (layer===0 ? 26 : 44) + Math.random()*(layer===0?24:40)
+        });
+      }
+      decor.hills.push({ bumps, layer });
+    }
+    // buskar på marken (utanför gropen)
+    decor.bushes = [];
+    const nBush = 2 + Math.floor(cssW/300);
+    for(let i=0;i<nBush;i++){
+      decor.bushes.push({
+        x: Math.random()*cssW,
+        scale: 0.7 + Math.random()*0.8,
+        shade: Math.random(),
+        yOff: Math.random()*8
       });
     }
     decor.grass = [];
@@ -495,8 +533,8 @@
   let antlionScaleCurrent = GROWTH_STAGES[0].scale;
 
   function geom(){
-    const groundY = cssH * 0.30;
-    const fullBottomY = Math.min(cssH * 0.87, groundY + Math.max(220, cssH*0.5));
+    const groundY = cssH * HORIZON_FRAC;
+    const fullBottomY = Math.min(cssH * 0.93, groundY + Math.max(220, cssH*0.48));
     const bottomY = groundY + (fullBottomY - groundY) * pitFormProgress * pitDepthMultCurrent;
     const centerX = cssW / 2;
     let halfWidthFull = cssW * 0.40;
@@ -659,6 +697,15 @@
         beep(120,0.24,'triangle',0.13,0.02);
         break;
       case 'gameover': playSadTrombone(); break;
+      case 'sting':
+        beep(880,0.05,'square',0.16);
+        beep(1200,0.05,'square',0.16,0.04);
+        beep(300,0.20,'sawtooth',0.20,0.08);
+        break;
+      case 'thunder':
+        playSandNoise(0.10, 0.6);
+        beep(70,0.5,'sine',0.14);
+        break;
       case 'powerup':
         beep(90,0.32,'sawtooth',0.22);
         beep(70,0.36,'sawtooth',0.20,0.05);
@@ -682,6 +729,12 @@
   let growthRings = [];
   let powerProgress = 0;
   let screenShakeTime = 0;
+  // regn
+  let rainState = 'none';   // 'none' | 'raining' | 'drying'
+  let rainTimer = 0;        // återstående tid i nuvarande fas
+  let nextRainIn = rand(CONFIG.rainIntervalMin, CONFIG.rainIntervalMax);
+  let rainDrops = [];
+  let rainCloudX = 0;
   let highScore = 0;
   try{ highScore = parseInt(localStorage.getItem('antLionAttackHighScore') || '0', 10) || 0; }catch(e){}
 
@@ -701,6 +754,7 @@
   const gameOverOverlay = document.getElementById('gameOverOverlay');
   const finalScoreEl = document.getElementById('finalScore');
   const highScoreEl = document.getElementById('highScore');
+  const gameOverMsgEl = document.getElementById('gameOverMsg');
   const muteBtn = document.getElementById('muteBtn');
   const powerMeterBtn = document.getElementById('powerMeterBtn');
   const powerMeterFillEl = document.getElementById('powerMeterFill');
@@ -718,8 +772,9 @@
   function easeOutCubic(t){ return 1 - Math.pow(1-t, 3); }
 
   /* ============ INSECT VISUAL HELPERS (shared by ants & antlion) ============ */
-  function makeInsectCfg(size, color, colorDark, waisted, mandibles){
+  function makeInsectCfg(size, color, colorDark, waisted, mandibles, wasp){
     return {
+      size,
       headR: size*0.5,
       thoraxRx: size*0.60, thoraxRy: size*0.42,
       abdRx: size*0.70, abdRy: size*0.46,
@@ -730,6 +785,7 @@
       color, colorDark,
       waisted: !!waisted,
       mandibles: !!mandibles,
+      wasp: !!wasp,
       antennae: true
     };
   }
@@ -770,13 +826,59 @@
     ctx.save();
     ctx.translate(0, -cfg.legLen*0.95 + Math.sin(phase*2)*cfg.legLen*0.05);
 
+    // stekelvingar bakom kroppen (fladdrar snabbt)
+    if(cfg.wasp){
+      const flutter = 0.6 + Math.abs(Math.sin(phase*3))*0.5;
+      ctx.save();
+      ctx.globalAlpha *= 0.5;
+      ctx.fillStyle = '#eaf3ff';
+      ctx.strokeStyle = 'rgba(120,150,190,0.7)';
+      ctx.lineWidth = 1;
+      [-1,1].forEach(s=>{
+        ctx.save();
+        ctx.translate(-cfg.bodyHalfLen*0.1, -cfg.thoraxRy*0.4);
+        ctx.rotate(s*0.5*flutter);
+        ctx.beginPath();
+        ctx.ellipse(-cfg.bodyHalfLen*0.35, -cfg.headR*0.9, cfg.bodyHalfLen*0.7, cfg.abdRy*0.55, 0, 0, Math.PI*2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      });
+      ctx.restore();
+    }
+
     drawLegsSide(cfg, phase, agitation, true);
+
+    // gadd på stekeln (bakerst)
+    if(cfg.wasp){
+      ctx.fillStyle = cfg.colorDark;
+      ctx.beginPath();
+      ctx.moveTo(-cfg.bodyHalfLen*1.05, 0);
+      ctx.lineTo(-cfg.bodyHalfLen*1.35, -cfg.abdRy*0.18);
+      ctx.lineTo(-cfg.bodyHalfLen*1.05, cfg.abdRy*0.22);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     // abdomen (rear)
     ctx.fillStyle = cfg.color;
     ctx.beginPath();
     ctx.ellipse(-cfg.bodyHalfLen*0.68, 0, cfg.abdRx, cfg.abdRy, 0, 0, Math.PI*2);
     ctx.fill();
+    // stekelränder över bakkroppen
+    if(cfg.wasp){
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(-cfg.bodyHalfLen*0.68, 0, cfg.abdRx, cfg.abdRy, 0, 0, Math.PI*2);
+      ctx.clip();
+      ctx.fillStyle = cfg.colorDark;
+      for(let k=-1;k<=2;k++){
+        ctx.beginPath();
+        ctx.rect(-cfg.bodyHalfLen*0.68 + k*cfg.abdRx*0.5 - cfg.abdRx*0.14, -cfg.abdRy, cfg.abdRx*0.28, cfg.abdRy*2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     ctx.fillStyle = 'rgba(0,0,0,0.14)';
     ctx.beginPath();
     ctx.ellipse(-cfg.bodyHalfLen*0.68, cfg.abdRy*0.35, cfg.abdRx*0.65, cfg.abdRy*0.4, 0, 0, Math.PI*2);
@@ -840,7 +942,9 @@
   /* ============ ANTS ============ */
   function spawnAnt(){
     const g = geom();
-    const typeKey = pickPreyType();
+    let typeKey = pickPreyType();
+    // aldrig mer än en stekel åt gången
+    if(PREY_TYPES[typeKey].hostile && countHostiles() >= 1) typeKey = 'small';
     const cfg = PREY_TYPES[typeKey];
     const size = cfg.sizeBase * settings.antSize;
     const x = rand(20, cssW-20);
@@ -858,10 +962,13 @@
       climbMult: cfg.climbMult,
       value: cfg.score,
       energyGain: cfg.energy,
+      hostile: !!cfg.hostile,
+      fallMult: cfg.fallMult || 1,
+      warnTimer: cfg.hostile ? 2.6 : 0,
       legPhase: Math.random()*10,
       turnCooldown: rand(1,3),
       caughtTimer: 0,
-      insectCfg: makeInsectCfg(size, cfg.color, cfg.colorDark, cfg.waisted, cfg.mandibles)
+      insectCfg: makeInsectCfg(size, cfg.color, cfg.colorDark, cfg.waisted, cfg.mandibles, cfg.wasp)
     });
   }
 
@@ -887,12 +994,24 @@
     }
   }
 
+  function doSting(ant, g){
+    antlionBite = 1;
+    playSound('sting');
+    spawnBurst(g.centerX, g.bottomY, '#e6b422');
+    spawnBurst(g.centerX, g.bottomY, '#c0392b');
+    triggerGameOver('sting');
+  }
+
+  function isWet(){ return rainState !== 'none'; }
+
   function updateAnts(dt, g){
     const climbSpeed = CONFIG.climbSpeedBase + level*CONFIG.climbSpeedLevelFactor;
+    const slip = isWet() ? CONFIG.passiveSlip*CONFIG.wetSlipMult : CONFIG.passiveSlip;
     for(let i=ants.length-1;i>=0;i--){
       const a = ants[i];
       const agitation = (a.state === 'inpit') ? (a.stun>0 ? 1.9 : 1.5) : 1;
       a.legPhase += dt*10*agitation;
+      if(a.warnTimer > 0) a.warnTimer -= dt;
 
       if(a.state === 'walking'){
         a.x += a.dir*a.speed*dt;
@@ -902,8 +1021,9 @@
           a.turnCooldown = rand(1.2, 3.2);
         }
         if(a.x < -40 || a.x > cssW+40){ ants.splice(i,1); continue; }
-        if(a.x > g.rimLeftX+6 && a.x < g.rimRightX-6){
-          if(Math.random() < CONFIG.fallToPitChancePerSec*dt){
+        // blöt/hård sand: inga nya nedfall förrän den torkat
+        if(!isWet() && a.x > g.rimLeftX+6 && a.x < g.rimRightX-6){
+          if(Math.random() < CONFIG.fallToPitChancePerSec*a.fallMult*dt){
             convertToInPit(a, g);
             spawnStumbleDust(a.x, pitY(a.x, g));
           }
@@ -911,14 +1031,15 @@
       } else if(a.state === 'inpit'){
         if(a.stun > 0){
           a.stun -= dt;
-          a.dist -= CONFIG.passiveSlip*0.4*dt;
+          a.dist -= slip*0.4*dt;
         } else {
-          a.dist += (climbSpeed*a.climbMult - CONFIG.passiveSlip)*dt;
+          a.dist += (climbSpeed*a.climbMult - slip)*dt;
         }
         a.dist = clamp(a.dist, 0, g.halfWidth);
         a.x = g.centerX + a.side*a.dist;
 
         if(a.dist <= CONFIG.catchRadius*currentGrowth().catchMult){
+          if(a.hostile){ doSting(a, g); return; }
           doCatch(a, g);
         } else if(a.dist >= g.halfWidth-2){
           a.state = 'walking';
@@ -929,6 +1050,29 @@
         a.caughtTimer -= dt;
         if(a.caughtTimer <= 0){ ants.splice(i,1); continue; }
       }
+    }
+  }
+
+  /* ============ RAIN ============ */
+  let rainSpawnAcc = 0;
+  function updateRain(dt, g){
+    rainCloudX += (g.centerX - rainCloudX) * (1 - Math.pow(0.02, dt));
+    if(rainState === 'raining'){
+      rainSpawnAcc += 240*dt; // ~240 droppar/s
+      while(rainSpawnAcc >= 1 && rainDrops.length < 500){
+        rainSpawnAcc -= 1;
+        rainDrops.push({
+          x: rand(-40, cssW+40),
+          y: rand(-40, g.groundY*0.4),
+          len: rand(9, 18),
+          speed: rand(620, 820)
+        });
+      }
+    }
+    for(let i=rainDrops.length-1;i>=0;i--){
+      const d = rainDrops[i];
+      d.y += d.speed*dt;
+      if(d.y > cssH){ rainDrops.splice(i,1); }
     }
   }
 
@@ -1033,6 +1177,7 @@
           ant.stun = CONFIG.stunDuration;
           hitSomething = true;
           if(ant.dist <= CONFIG.catchRadius*currentGrowth().catchMult){
+            if(ant.hostile){ doSting(ant, g); return; }
             doCatch(ant, g);
           } else {
             playSqueak(1.6);
@@ -1095,6 +1240,11 @@
     screenFlash = 0;
     powerProgress = 0;
     screenShakeTime = 0;
+    rainState = 'none';
+    rainTimer = 0;
+    rainDrops = [];
+    rainSpawnAcc = 0;
+    nextRainIn = rand(CONFIG.rainIntervalMin, CONFIG.rainIntervalMax);
     lastLevelSounded = 1;
     lastStageSounded = 0;
     pitWidthMultCurrent = GROWTH_STAGES[0].pitWidthMult;
@@ -1114,7 +1264,10 @@
     playSound('powerup');
     playSandNoise(0.30, 0.45);
 
-    for(const a of ants){
+    // steklar skakas ut ur gropen (skadar inte), myror dras ner och äts
+    for(let i=ants.length-1;i>=0;i--){
+      const a = ants[i];
+      if(a.hostile){ ants.splice(i,1); continue; }
       if(a.state === 'walking') convertToInPit(a, g);
     }
     for(let i=ants.length-1;i>=0;i--){
@@ -1168,9 +1321,14 @@
     startIntro();
   }
 
-  function triggerGameOver(){
+  function triggerGameOver(reason){
     state = 'gameover';
     syncHudVisibility();
+    if(reason === 'sting'){
+      gameOverMsgEl.textContent = 'En stekel tog sig ner i gropen och stack dig!';
+    } else {
+      gameOverMsgEl.textContent = 'Gropen rasade in och du somnade av hunger...';
+    }
     playSound('gameover');
     if(score > highScore){
       highScore = score;
@@ -1279,6 +1437,19 @@
     pitDepthMultCurrent += (growthTarget.pitDepthMult - pitDepthMultCurrent) * growEase;
     antlionScaleCurrent += (growthTarget.scale - antlionScaleCurrent) * growEase;
 
+    // regn-schema
+    if(rainState === 'none'){
+      nextRainIn -= dt;
+      if(nextRainIn <= 0){ rainState = 'raining'; rainTimer = CONFIG.rainDuration; playSound('thunder'); }
+    } else if(rainState === 'raining'){
+      rainTimer -= dt;
+      if(rainTimer <= 0){ rainState = 'drying'; rainTimer = CONFIG.dryDuration; }
+    } else if(rainState === 'drying'){
+      rainTimer -= dt;
+      if(rainTimer <= 0){ rainState = 'none'; nextRainIn = rand(CONFIG.rainIntervalMin, CONFIG.rainIntervalMax); }
+    }
+    updateRain(dt, g);
+
     spawnTimer -= dt;
     if(spawnTimer <= 0 && ants.length < maxAnts()){
       spawnAnt();
@@ -1324,15 +1495,62 @@
     ctx.fill();
   }
 
+  function drawHills(g){
+    const palettes = [
+      ['#bfe0c6','#a9d4b6'],   // bakre lager (hazier)
+      ['#9ec48a','#89b578']    // främre lager
+    ];
+    decor.hills.forEach(H=>{
+      const pal = palettes[H.layer] || palettes[0];
+      const grd = ctx.createLinearGradient(0, g.groundY-90, 0, g.groundY);
+      grd.addColorStop(0, pal[0]);
+      grd.addColorStop(1, pal[1]);
+      ctx.fillStyle = grd;
+      ctx.beginPath();
+      ctx.moveTo(-60, g.groundY+2);
+      const b = H.bumps;
+      for(let i=0;i<b.length;i++){
+        const prevX = i===0 ? -60 : b[i-1].x;
+        const midX = (prevX + b[i].x)/2;
+        ctx.quadraticCurveTo(midX, g.groundY - b[i].h, b[i].x, g.groundY - b[i].h*0.5);
+      }
+      ctx.lineTo(cssW+60, g.groundY+2);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawBush(x, y, scale, shade){
+    const base = shade < 0.5 ? '#4f7a3a' : '#5f8a44';
+    const lite = shade < 0.5 ? '#6b9a4e' : '#7aa858';
+    const lobes = [[0,0,15],[-13,4,11],[13,3,12],[-6,-8,11],[7,-7,10]];
+    ctx.fillStyle = base;
+    for(const l of lobes){
+      ctx.beginPath();
+      ctx.ellipse(x+l[0]*scale, y+l[1]*scale, l[2]*scale, l[2]*0.85*scale, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.fillStyle = lite;
+    for(const l of lobes){
+      ctx.beginPath();
+      ctx.ellipse(x+l[0]*scale-2*scale, y+l[1]*scale-3*scale, l[2]*0.55*scale, l[2]*0.45*scale, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
   function drawBackground(g){
+    const raining = rainState === 'raining';
+    const skyTop = raining ? '#8ea6b8' : '#aeddfa';
+    const skyBot = raining ? '#c3d2da' : '#eaf7ff';
     const sky = ctx.createLinearGradient(0,0,0,g.groundY);
-    sky.addColorStop(0,'#aeddfa');
-    sky.addColorStop(1,'#eaf7ff');
+    sky.addColorStop(0,skyTop);
+    sky.addColorStop(1,skyBot);
     ctx.fillStyle = sky;
     ctx.fillRect(0,0,cssW,g.groundY);
 
-    // sun with glow
-    const sunX = cssW*0.85, sunY = g.groundY*0.35;
+    // sun with glow (dimmas i regn)
+    const sunX = cssW*0.85, sunY = g.groundY*0.28;
+    ctx.globalAlpha = raining ? 0.35 : 1;
     const glow = ctx.createRadialGradient(sunX,sunY,8,sunX,sunY,90);
     glow.addColorStop(0,'rgba(255,240,170,0.95)');
     glow.addColorStop(0.35,'rgba(255,225,130,0.45)');
@@ -1343,12 +1561,36 @@
     ctx.arc(sunX, sunY, 30, 0, Math.PI*2);
     ctx.fillStyle = '#fff3b8';
     ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // hills behind everything on the ground
+    drawHills(g);
 
     // drifting clouds
     const tNow = performance.now()*0.001;
     for(const c of decor.clouds){
       const cx = ((c.x + tNow*c.speed) % (cssW+140)) - 70;
       drawCloud({x:cx, y:c.y, scale:c.scale});
+    }
+
+    // mörkt regnmoln över gropen medan det regnar/torkar
+    if(isWet()){
+      const fade = rainState === 'raining' ? 1 : Math.max(0, rainTimer/CONFIG.dryDuration);
+      ctx.globalAlpha = 0.85*fade + 0.15;
+      const cy = g.groundY*0.24;
+      ctx.fillStyle = '#5c6b78';
+      [[-55,6,40,20],[0,-6,54,26],[58,6,42,21],[6,10,60,22]].forEach(o=>{
+        ctx.beginPath();
+        ctx.ellipse(rainCloudX+o[0], cy+o[1], o[2], o[3], 0, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.fillStyle = '#6e7d88';
+      [[-40,-4,30,15],[20,-8,34,17]].forEach(o=>{
+        ctx.beginPath();
+        ctx.ellipse(rainCloudX+o[0], cy+o[1], o[2], o[3], 0, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
     }
 
     const ground = ctx.createLinearGradient(0,g.groundY,0,cssH);
@@ -1370,6 +1612,12 @@
       ctx.fill();
     }
 
+    // bushes on the ground line, outside the pit
+    for(const bsh of decor.bushes){
+      if(bsh.x > g.rimLeftX-90 && bsh.x < g.rimRightX+90) continue;
+      drawBush(bsh.x, g.groundY - 8*bsh.scale + bsh.yOff, bsh.scale, bsh.shade);
+    }
+
     // grass tufts along the ground line, outside the pit
     for(const t of decor.grass){
       if(t.x > g.rimLeftX-70 && t.x < g.rimRightX+70) continue;
@@ -1388,6 +1636,13 @@
         );
         ctx.stroke();
       }
+    }
+
+    // blöt mark: mörk-blå ton över marken medan sanden är hård (tonas bort när den torkar)
+    if(isWet()){
+      const fade = rainState === 'raining' ? 1 : Math.max(0, rainTimer/CONFIG.dryDuration);
+      ctx.fillStyle = 'rgba(40,54,82,' + (0.16*fade) + ')';
+      ctx.fillRect(0, g.groundY, cssW, cssH-g.groundY);
     }
   }
 
@@ -1573,6 +1828,25 @@
     drawInsectBody(a.insectCfg, a.legPhase, agitation);
     ctx.restore();
     ctx.globalAlpha = 1;
+
+    // varningsetikett över nyintroducerad stekel
+    if(a.hostile && a.warnTimer > 0 && a.state === 'walking'){
+      const labelY = y - a.size*2.6;
+      ctx.globalAlpha = Math.min(1, a.warnTimer);
+      ctx.font = 'bold 13px Trebuchet MS, sans-serif';
+      ctx.textAlign = 'center';
+      const txt = '⚠ Stekel!';
+      const w = ctx.measureText(txt).width + 16;
+      ctx.fillStyle = 'rgba(150,20,20,0.85)';
+      ctx.beginPath();
+      if(ctx.roundRect) ctx.roundRect(x-w/2, labelY-13, w, 20, 9);
+      else ctx.rect(x-w/2, labelY-13, w, 20);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillText(txt, x, labelY+1);
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
   }
 
   function drawParticles(){
@@ -1601,6 +1875,36 @@
       ctx.fillStyle = 'rgba(255,224,140,' + (screenFlash*0.45) + ')';
       ctx.fillRect(0,0,cssW,cssH);
     }
+  }
+
+  function drawRain(){
+    if(rainDrops.length === 0) return;
+    ctx.strokeStyle = 'rgba(174,206,235,0.7)';
+    ctx.lineWidth = 1.4;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for(const d of rainDrops){
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x-2, d.y+d.len);
+    }
+    ctx.stroke();
+  }
+
+  function drawWeatherCaption(g){
+    if(!isWet()) return;
+    const txt = rainState === 'raining' ? '🌧 Regn – sanden blir hård!' : 'Sanden torkar...';
+    ctx.font = 'bold 16px Trebuchet MS, sans-serif';
+    ctx.textAlign = 'center';
+    const w = ctx.measureText(txt).width + 26;
+    const cx = g.centerX, cy = 24;
+    ctx.fillStyle = 'rgba(30,40,60,0.55)';
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(cx-w/2, cy-15, w, 26, 12);
+    else ctx.rect(cx-w/2, cy-15, w, 26);
+    ctx.fill();
+    ctx.fillStyle = '#eaf3ff';
+    ctx.fillText(txt, cx, cy+3);
+    ctx.textAlign = 'left';
   }
 
   function drawIntroCaption(g){
@@ -1639,6 +1943,8 @@
     }
     drawParticles();
     drawGrowthRings();
+    drawRain();
+    drawWeatherCaption(g);
     drawScreenFlash();
 
     if(state === 'menu'){
