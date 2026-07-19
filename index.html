@@ -389,11 +389,13 @@
     powerChargeTarget: 350,
     screenShakeDuration: 0.55,
     screenShakeMag: 14,
+    rainIncomingDuration: 3.2,// molnet seglar in innan regnet börjar
     rainDuration: 4.0,        // hur länge det regnar
     dryDuration: 3.0,         // torktid efter regn (sanden fortsatt hård)
     rainIntervalMin: 20,      // sekunder mellan regnskurar
     rainIntervalMax: 34,
     wetSlipMult: 0.55,        // myrorna glider ner långsammare när sanden är blöt
+    maxHostiles: 2,           // hur många steklar som får finnas samtidigt
   };
 
   /* ============ GROWTH & PREY ============ */
@@ -419,7 +421,7 @@
     huge:   { sizeBase: 20, minStage: 3, score: 55, energy: 42, speedMult: 0.68, climbMult: 1.30, waisted: false, mandibles: true,  weight: 1,  color: '#3a6d82', colorDark: '#1c3844' },
     purple: { sizeBase: 9,  minStage: 0, score: 25, energy: 16, speedMult: 1.30, climbMult: 1.05, waisted: true,  mandibles: false, weight: 1.5, color: '#7a3f9e', colorDark: '#3f1f52' },
     // STEKEL: fiende! Får man ner den i botten sticker den myrlejonet. Undvik att knuffa/dra ner den.
-    wasp:   { sizeBase: 13, minStage: 1, score: 0,  energy: 0,  speedMult: 1.10, climbMult: 2.10, waisted: true,  mandibles: false, weight: 1.4, color: '#e6b422', colorDark: '#2a2206', hostile: true, wasp: true, fallMult: 0.35 },
+    wasp:   { sizeBase: 13, minStage: 1, score: 0,  energy: 0,  speedMult: 1.10, climbMult: 2.10, waisted: true,  mandibles: false, weight: 3.4, color: '#e6b422', colorDark: '#2a2206', hostile: true, wasp: true, fallMult: 0.35 },
   };
   function pickPreyType(){
     const stage = growthStageIndex(score);
@@ -549,6 +551,10 @@
   function pitY(x, g){
     const t = Math.min(1, Math.abs(x - g.centerX) / g.halfWidth);
     return g.bottomY + (g.groundY - g.bottomY) * t;
+  }
+  // två myrbon där myrorna kryper fram, ett på var sida
+  function nestPositions(g){
+    return { leftX: Math.round(cssW*0.05), rightX: Math.round(cssW*0.95), y: g.groundY };
   }
 
   /* ============ AUDIO ============ */
@@ -730,11 +736,12 @@
   let powerProgress = 0;
   let screenShakeTime = 0;
   // regn
-  let rainState = 'none';   // 'none' | 'raining' | 'drying'
+  let rainState = 'none';   // 'none' | 'incoming' | 'raining' | 'drying'
   let rainTimer = 0;        // återstående tid i nuvarande fas
   let nextRainIn = rand(CONFIG.rainIntervalMin, CONFIG.rainIntervalMax);
   let rainDrops = [];
   let rainCloudX = 0;
+  let rainFromLeft = true;
   let highScore = 0;
   try{ highScore = parseInt(localStorage.getItem('antLionAttackHighScore') || '0', 10) || 0; }catch(e){}
 
@@ -943,12 +950,16 @@
   function spawnAnt(){
     const g = geom();
     let typeKey = pickPreyType();
-    // aldrig mer än en stekel åt gången
-    if(PREY_TYPES[typeKey].hostile && countHostiles() >= 1) typeKey = 'small';
+    // begränsa antal steklar samtidigt
+    if(PREY_TYPES[typeKey].hostile && countHostiles() >= CONFIG.maxHostiles) typeKey = 'small';
     const cfg = PREY_TYPES[typeKey];
     const size = cfg.sizeBase * settings.antSize;
-    const x = rand(20, cssW-20);
-    const dir = Math.random() < 0.5 ? -1 : 1;
+    // kryp fram ur ett av de två myrbona och gå inåt
+    const nests = nestPositions(g);
+    const fromLeft = Math.random() < 0.5;
+    const x = fromLeft ? nests.leftX : nests.rightX;
+    const dir = fromLeft ? 1 : -1;
+    spawnStumbleDust(x, g.groundY);
     ants.push({
       x, y: g.groundY,
       state: 'walking',
@@ -1056,7 +1067,13 @@
   /* ============ RAIN ============ */
   let rainSpawnAcc = 0;
   function updateRain(dt, g){
-    rainCloudX += (g.centerX - rainCloudX) * (1 - Math.pow(0.02, dt));
+    if(rainState === 'incoming'){
+      const prog = 1 - Math.max(0, rainTimer/CONFIG.rainIncomingDuration); // 0 → 1 medan molnet seglar in
+      const fromX = rainFromLeft ? -160 : cssW+160;
+      rainCloudX = fromX + (g.centerX - fromX) * easeOutCubic(Math.min(1, prog));
+    } else if(rainState !== 'none'){
+      rainCloudX += (g.centerX - rainCloudX) * (1 - Math.pow(0.02, dt));
+    }
     if(rainState === 'raining'){
       rainSpawnAcc += 240*dt; // ~240 droppar/s
       while(rainSpawnAcc >= 1 && rainDrops.length < 500){
@@ -1161,6 +1178,8 @@
     for(const ant of ants){
       if(ant.state === 'caught') continue;
       if(ant.state === 'walking'){
+        // hård/blöt sand: går inte att knuffa ner myror i gropen medan det regnar
+        if(isWet()) continue;
         const nearRimZone = px >= g.rimLeftX-30 && px <= g.rimRightX+30;
         const antNearEdge = Math.abs(ant.x - g.centerX) > g.halfWidth*CONFIG.knockZoneFrac;
         if(nearRimZone && antNearEdge && Math.abs(ant.x-px) < CONFIG.flickRadius){
@@ -1244,6 +1263,7 @@
     rainTimer = 0;
     rainDrops = [];
     rainSpawnAcc = 0;
+    rainCloudX = 0;
     nextRainIn = rand(CONFIG.rainIntervalMin, CONFIG.rainIntervalMax);
     lastLevelSounded = 1;
     lastStageSounded = 0;
@@ -1437,10 +1457,17 @@
     pitDepthMultCurrent += (growthTarget.pitDepthMult - pitDepthMultCurrent) * growEase;
     antlionScaleCurrent += (growthTarget.scale - antlionScaleCurrent) * growEase;
 
-    // regn-schema
+    // regn-schema: none → incoming (molnet seglar in) → raining → drying → none
     if(rainState === 'none'){
       nextRainIn -= dt;
-      if(nextRainIn <= 0){ rainState = 'raining'; rainTimer = CONFIG.rainDuration; playSound('thunder'); }
+      if(nextRainIn <= 0){
+        rainState = 'incoming'; rainTimer = CONFIG.rainIncomingDuration;
+        rainFromLeft = Math.random() < 0.5;
+        rainCloudX = rainFromLeft ? -160 : cssW+160;
+      }
+    } else if(rainState === 'incoming'){
+      rainTimer -= dt;
+      if(rainTimer <= 0){ rainState = 'raining'; rainTimer = CONFIG.rainDuration; playSound('thunder'); }
     } else if(rainState === 'raining'){
       rainTimer -= dt;
       if(rainTimer <= 0){ rainState = 'drying'; rainTimer = CONFIG.dryDuration; }
@@ -1520,6 +1547,29 @@
     });
   }
 
+  function drawNest(x, y){
+    // liten upphöjd sandvall
+    ctx.fillStyle = '#c49a5c';
+    ctx.beginPath();
+    ctx.ellipse(x, y, 20, 8, 0, 0, Math.PI*2);
+    ctx.fill();
+    // mörk boöppning
+    const grd = ctx.createRadialGradient(x, y-1, 1, x, y-1, 12);
+    grd.addColorStop(0, '#1c1006');
+    grd.addColorStop(0.7, '#341f0e');
+    grd.addColorStop(1, '#5c3d20');
+    ctx.fillStyle = grd;
+    ctx.beginPath();
+    ctx.ellipse(x, y-1, 11, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+    // ljusglimt på nedre kanten
+    ctx.strokeStyle = 'rgba(255,235,190,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x, y+1, 11, 6, 0, Math.PI*0.15, Math.PI*0.85);
+    ctx.stroke();
+  }
+
   function drawBush(x, y, scale, shade){
     const base = shade < 0.5 ? '#4f7a3a' : '#5f8a44';
     const lite = shade < 0.5 ? '#6b9a4e' : '#7aa858';
@@ -1573,9 +1623,11 @@
       drawCloud({x:cx, y:c.y, scale:c.scale});
     }
 
-    // mörkt regnmoln över gropen medan det regnar/torkar
-    if(isWet()){
-      const fade = rainState === 'raining' ? 1 : Math.max(0, rainTimer/CONFIG.dryDuration);
+    // mörkt regnmoln – seglar in, regnar, och tonas bort medan sanden torkar
+    if(rainState !== 'none'){
+      let fade = 1;
+      if(rainState === 'incoming') fade = Math.min(1, (1 - rainTimer/CONFIG.rainIncomingDuration) + 0.35);
+      else if(rainState === 'drying') fade = Math.max(0, rainTimer/CONFIG.dryDuration);
       ctx.globalAlpha = 0.85*fade + 0.15;
       const cy = g.groundY*0.24;
       ctx.fillStyle = '#5c6b78';
@@ -1637,6 +1689,11 @@
         ctx.stroke();
       }
     }
+
+    // två myrbon vid kanterna (om de inte hamnar under gropen)
+    const nests = nestPositions(g);
+    if(nests.leftX < g.rimLeftX - 14) drawNest(nests.leftX, nests.y);
+    if(nests.rightX > g.rimRightX + 14) drawNest(nests.rightX, nests.y);
 
     // blöt mark: mörk-blå ton över marken medan sanden är hård (tonas bort när den torkar)
     if(isWet()){
@@ -1891,8 +1948,11 @@
   }
 
   function drawWeatherCaption(g){
-    if(!isWet()) return;
-    const txt = rainState === 'raining' ? '🌧 Regn – sanden blir hård!' : 'Sanden torkar...';
+    if(rainState === 'none') return;
+    let txt;
+    if(rainState === 'incoming') txt = '🌧 Ett regnmoln närmar sig...';
+    else if(rainState === 'raining') txt = '🌧 Regn – sanden blir hård!';
+    else txt = 'Sanden torkar...';
     ctx.font = 'bold 16px Trebuchet MS, sans-serif';
     ctx.textAlign = 'center';
     const w = ctx.measureText(txt).width + 26;
