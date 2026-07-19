@@ -708,6 +708,11 @@
         beep(1200,0.05,'square',0.16,0.04);
         beep(300,0.20,'sawtooth',0.20,0.08);
         break;
+      case 'waspin':
+        // surrande inflygning: darrig sågtandston
+        beep(230,0.22,'sawtooth',0.08);
+        beep(245,0.22,'sawtooth',0.07,0.02);
+        break;
       case 'thunder':
         playSandNoise(0.10, 0.6);
         beep(70,0.5,'sine',0.14);
@@ -954,15 +959,31 @@
     if(PREY_TYPES[typeKey].hostile && countHostiles() >= CONFIG.maxHostiles) typeKey = 'small';
     const cfg = PREY_TYPES[typeKey];
     const size = cfg.sizeBase * settings.antSize;
-    // kryp fram ur ett av de två myrbona och gå inåt
-    const nests = nestPositions(g);
     const fromLeft = Math.random() < 0.5;
-    const x = fromLeft ? nests.leftX : nests.rightX;
-    const dir = fromLeft ? 1 : -1;
-    spawnStumbleDust(x, g.groundY);
+    let x, dir, startState;
+    let flyFromX = 0, flyToX = 0, flyFromY = 0, flyY = 0, flyDur = 0;
+    if(cfg.hostile){
+      // stekeln flyger in från sidan och landar sedan
+      startState = 'flying';
+      x = fromLeft ? -50 : cssW+50;
+      dir = fromLeft ? 1 : -1;
+      flyFromX = x;
+      flyToX = rand(cssW*0.22, cssW*0.78);
+      flyFromY = rand(cssH*0.05, cssH*0.16);
+      flyY = flyFromY;
+      flyDur = rand(1.3, 2.0);
+      playSound('waspin');
+    } else {
+      // kryp fram ur ett av de två myrbona och gå inåt
+      const nests = nestPositions(g);
+      startState = 'walking';
+      x = fromLeft ? nests.leftX : nests.rightX;
+      dir = fromLeft ? 1 : -1;
+      spawnStumbleDust(x, g.groundY);
+    }
     ants.push({
       x, y: g.groundY,
-      state: 'walking',
+      state: startState,
       dir,
       speed: rand(CONFIG.walkSpeedBase-CONFIG.walkSpeedVar, CONFIG.walkSpeedBase+CONFIG.walkSpeedVar) * cfg.speedMult,
       side: 0,
@@ -976,6 +997,7 @@
       hostile: !!cfg.hostile,
       fallMult: cfg.fallMult || 1,
       warnTimer: cfg.hostile ? 2.6 : 0,
+      flyFromX, flyToX, flyFromY, flyToY: g.groundY, flyY, flyT: 0, flyDur,
       legPhase: Math.random()*10,
       turnCooldown: rand(1,3),
       caughtTimer: 0,
@@ -1027,6 +1049,22 @@
       const agitation = (a.state === 'inpit') ? (a.stun>0 ? 1.9 : 1.5) : 1;
       a.legPhase += dt*10*agitation;
       if(a.warnTimer > 0) a.warnTimer -= dt;
+
+      if(a.state === 'flying'){
+        a.flyT += dt;
+        const p = Math.min(1, a.flyT/a.flyDur);
+        a.x = a.flyFromX + (a.flyToX - a.flyFromX)*p;
+        a.flyY = a.flyFromY + (a.flyToY - a.flyFromY)*easeOutCubic(p);
+        a.legPhase += dt*24; // snabb vingfladder i luften
+        if(p >= 1){
+          a.state = 'walking';
+          a.y = g.groundY;
+          a.dir = (a.x < g.centerX) ? 1 : -1;
+          a.turnCooldown = rand(0.6, 1.6);
+          spawnStumbleDust(a.x, g.groundY); // dammpuff vid landning
+        }
+        continue;
+      }
 
       if(a.state === 'walking'){
         a.x += a.dir*a.speed*dt;
@@ -1866,6 +1904,7 @@
   function drawAnt(a, g){
     let x = a.x, y;
     if(a.state === 'walking') y = g.groundY;
+    else if(a.state === 'flying') y = a.flyY;
     else y = pitY(a.x, g);
 
     let alpha = 1;
@@ -1875,15 +1914,26 @@
       alpha = Math.max(0, 1-t*1.4);
     }
 
-    const mirror = (a.state === 'walking') ? (a.dir >= 0 ? 1 : -1) : (a.side >= 0 ? 1 : -1);
-    const tilt = (a.state === 'inpit') ? -a.side*0.28 : 0;
+    const mirror = (a.state === 'inpit') ? (a.side >= 0 ? 1 : -1) : (a.dir >= 0 ? 1 : -1);
+    let tilt = 0;
+    if(a.state === 'inpit') tilt = -a.side*0.28;
+    else if(a.state === 'flying') tilt = mirror*0.16; // dyker nedåt-framåt medan den landar
     const agitation = (a.state === 'inpit') ? (a.stun>0 ? 1.9 : 1.5) : 1;
 
-    // mjuk skugga under fötterna
-    ctx.fillStyle = 'rgba(40,22,8,0.20)';
-    ctx.beginPath();
-    ctx.ellipse(x, y + a.size*0.12, a.size*1.15, a.size*0.24, tilt, 0, Math.PI*2);
-    ctx.fill();
+    // mjuk skugga: på marken (mindre/blekare ju högre stekeln flyger)
+    if(a.state === 'flying'){
+      const alt = Math.max(0, (g.groundY - a.flyY) / Math.max(1, g.groundY - a.flyFromY));
+      const sh = 1 - alt*0.7;
+      ctx.fillStyle = 'rgba(40,22,8,' + (0.18*(1-alt*0.6)) + ')';
+      ctx.beginPath();
+      ctx.ellipse(x, g.groundY + a.size*0.12, a.size*1.1*sh, a.size*0.22*sh, 0, 0, Math.PI*2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = 'rgba(40,22,8,0.20)';
+      ctx.beginPath();
+      ctx.ellipse(x, y + a.size*0.12, a.size*1.15, a.size*0.24, tilt, 0, Math.PI*2);
+      ctx.fill();
+    }
 
     ctx.save();
     ctx.globalAlpha = alpha;
@@ -1894,8 +1944,8 @@
     ctx.restore();
     ctx.globalAlpha = 1;
 
-    // varningsetikett över nyintroducerad stekel
-    if(a.hostile && a.warnTimer > 0 && a.state === 'walking'){
+    // varningsetikett över nyintroducerad stekel (även medan den flyger in)
+    if(a.hostile && a.warnTimer > 0 && (a.state === 'walking' || a.state === 'flying')){
       const labelY = y - a.size*2.6;
       ctx.globalAlpha = Math.min(1, a.warnTimer);
       ctx.font = 'bold 13px Trebuchet MS, sans-serif';
