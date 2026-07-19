@@ -454,13 +454,14 @@
       });
     }
     decor.grass = [];
-    const nGrass = Math.floor(cssW/55);
+    const nGrass = Math.floor(cssW/16);
     for(let i=0;i<nGrass;i++){
       decor.grass.push({
         x: Math.random()*cssW,
-        h: 7 + Math.random()*9,
+        h: 6 + Math.random()*13,
         lean: -0.35 + Math.random()*0.7,
-        shade: Math.random()
+        shade: Math.random(),
+        blades: 3 + Math.floor(Math.random()*3)
       });
     }
     decor.pebbles = [];
@@ -733,36 +734,43 @@
     };
   }
 
-  function drawLegsTripod(cfg, phase, agitation){
-    const xs = [cfg.bodyHalfLen*0.7, 0, -cfg.bodyHalfLen*0.7];
+  // sidovy: benen fäster under kroppen, knät arkar uppåt, fötterna står på marklinjen
+  function drawLegsSide(cfg, phase, agitation, far){
+    const L = cfg.legLen;
+    const attXs   = [cfg.bodyHalfLen*0.45, cfg.bodyHalfLen*0.02, -cfg.bodyHalfLen*0.42];
+    const footOff = [L*0.55, L*0.08, -L*0.52];
+    // tripod-gång: fram+bak på ena sidan rör sig med mitten på andra
+    const gait = far ? [Math.PI, 0, Math.PI] : [0, Math.PI, 0];
+    const attY = cfg.thoraxRy*0.35;
+    const footLevel = L*0.95;
     ctx.strokeStyle = cfg.colorDark;
     ctx.lineWidth = cfg.legWidth;
     ctx.lineCap = 'round';
+    if(far) ctx.globalAlpha *= 0.45;
     for(let i=0;i<3;i++){
-      const legX = xs[i];
-      for(const side of [-1,1]){
-        const group = (i + (side>0?1:0)) % 2;
-        const p = phase + (group===1 ? Math.PI : 0);
-        const swing = Math.sin(p);
-        const attX = legX;
-        const attY = side*cfg.bodyHalfWidth*0.85;
-        const forward = swing>0 ? swing*cfg.legLen*0.55*agitation : swing*cfg.legLen*0.18*agitation;
-        const lift = swing>0 ? Math.abs(swing)*cfg.legLen*0.35*agitation : 0;
-        const footX = attX + forward;
-        const footY = attY + side*cfg.legLen*0.75 - lift;
-        const kneeX = attX + forward*0.4;
-        const kneeY = attY + side*cfg.legLen*0.4 - lift*0.5;
-        ctx.beginPath();
-        ctx.moveTo(attX, attY);
-        ctx.quadraticCurveTo(kneeX, kneeY, footX, footY);
-        ctx.stroke();
-      }
+      const p = phase + gait[i];
+      const swing = Math.sin(p) * L*0.30 * agitation;
+      const lift = Math.max(0, Math.cos(p)) * L*0.22 * agitation;
+      const attX = attXs[i];
+      const footX = attX + footOff[i] + swing;
+      const footY = footLevel - lift + (far ? -L*0.07 : 0);
+      const kneeX = attX + footOff[i]*0.45 + swing*0.5;
+      const kneeY = attY - L*0.32;
+      ctx.beginPath();
+      ctx.moveTo(attX, attY);
+      ctx.quadraticCurveTo(kneeX, kneeY, footX, footY);
+      ctx.stroke();
     }
+    if(far) ctx.globalAlpha /= 0.45;
   }
 
   function drawInsectBody(cfg, phase, agitation){
     agitation = agitation == null ? 1 : agitation;
-    drawLegsTripod(cfg, phase, agitation);
+    // lyft kroppen så fötterna står vid origo (marklinjen), med liten gung i steget
+    ctx.save();
+    ctx.translate(0, -cfg.legLen*0.95 + Math.sin(phase*2)*cfg.legLen*0.05);
+
+    drawLegsSide(cfg, phase, agitation, true);
 
     // abdomen (rear)
     ctx.fillStyle = cfg.color;
@@ -786,35 +794,45 @@
     ctx.fill();
 
     if(cfg.mandibles){
+      // käkar i sidovy: en övre och en undre som gapar framåt
       ctx.strokeStyle = cfg.colorDark;
       ctx.lineWidth = Math.max(1.2, cfg.headR*0.24);
       ctx.lineCap = 'round';
-      [-1,1].forEach(s=>{
-        ctx.beginPath();
-        ctx.moveTo(cfg.bodyHalfLen*0.72+cfg.headR*0.55, s*cfg.headR*0.4);
-        ctx.quadraticCurveTo(cfg.bodyHalfLen*0.72+cfg.headR*1.55, s*cfg.headR*0.85, cfg.bodyHalfLen*0.72+cfg.headR*1.25, s*cfg.headR*0.1);
-        ctx.stroke();
-      });
+      const hx = cfg.bodyHalfLen*0.72;
+      ctx.beginPath();
+      ctx.moveTo(hx+cfg.headR*0.6, -cfg.headR*0.15);
+      ctx.quadraticCurveTo(hx+cfg.headR*1.5, -cfg.headR*0.5, hx+cfg.headR*1.3, cfg.headR*0.05);
+      ctx.moveTo(hx+cfg.headR*0.6, cfg.headR*0.3);
+      ctx.quadraticCurveTo(hx+cfg.headR*1.4, cfg.headR*0.6, hx+cfg.headR*1.25, cfg.headR*0.2);
+      ctx.stroke();
     }
 
     if(cfg.antennae){
+      // båda antennerna svänger uppåt-framåt i sidovy
       ctx.strokeStyle = cfg.colorDark;
       ctx.lineWidth = 1;
       const wig = Math.sin(phase*0.6)*0.16;
-      [-1,1].forEach(s=>{
-        ctx.beginPath();
-        ctx.moveTo(cfg.bodyHalfLen*0.72+cfg.headR*0.25, s*cfg.headR*0.5);
-        ctx.lineTo(cfg.bodyHalfLen*1.35, s*(cfg.headR*1.05 + wig*cfg.headR));
-        ctx.stroke();
-      });
+      const hx = cfg.bodyHalfLen*0.72;
+      ctx.beginPath();
+      ctx.moveTo(hx+cfg.headR*0.2, -cfg.headR*0.55);
+      ctx.quadraticCurveTo(hx+cfg.headR*0.7, -cfg.headR*1.5, hx+cfg.headR*1.4, -cfg.headR*(1.5+wig));
+      ctx.moveTo(hx+cfg.headR*0.35, -cfg.headR*0.45);
+      ctx.quadraticCurveTo(hx+cfg.headR*0.9, -cfg.headR*1.1, hx+cfg.headR*1.6, -cfg.headR*(1.0+wig*0.7));
+      ctx.stroke();
     }
 
-    // eyes
+    // ett öga (sidovy) med glimt
     ctx.fillStyle = '#1a0e05';
     ctx.beginPath();
-    ctx.arc(cfg.bodyHalfLen*0.82, -cfg.headR*0.32, cfg.headR*0.2, 0, Math.PI*2);
-    ctx.arc(cfg.bodyHalfLen*0.82, cfg.headR*0.32, cfg.headR*0.2, 0, Math.PI*2);
+    ctx.arc(cfg.bodyHalfLen*0.80, -cfg.headR*0.18, cfg.headR*0.24, 0, Math.PI*2);
     ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.arc(cfg.bodyHalfLen*0.76, -cfg.headR*0.28, cfg.headR*0.08, 0, Math.PI*2);
+    ctx.fill();
+
+    drawLegsSide(cfg, phase, agitation, false);
+    ctx.restore();
   }
 
   const ANTLION_WALK_CFG = makeInsectCfg(15, '#4a3018', '#241206', false, true);
@@ -1355,16 +1373,18 @@
     // grass tufts along the ground line, outside the pit
     for(const t of decor.grass){
       if(t.x > g.rimLeftX-70 && t.x < g.rimRightX+70) continue;
-      const col = t.shade < 0.5 ? '#8a9950' : '#a8a35e';
+      const col = t.shade < 0.35 ? '#7d8f48' : (t.shade < 0.7 ? '#8a9950' : '#a8a35e');
       ctx.strokeStyle = col;
       ctx.lineWidth = 1.6;
       ctx.lineCap = 'round';
-      for(let b=-1;b<=1;b++){
+      const nb = t.blades || 3;
+      for(let b=0;b<nb;b++){
+        const off = b - (nb-1)/2;
         ctx.beginPath();
-        ctx.moveTo(t.x, g.groundY+1);
+        ctx.moveTo(t.x + off*1.5, g.groundY+1);
         ctx.quadraticCurveTo(
-          t.x + b*3 + t.lean*4, g.groundY - t.h*0.6,
-          t.x + b*5 + t.lean*t.h, g.groundY - t.h*(b===0?1:0.75)
+          t.x + off*3 + t.lean*4, g.groundY - t.h*0.6,
+          t.x + off*5 + t.lean*t.h, g.groundY - t.h*(off===0?1:0.7+Math.abs(off)*0.08)
         );
         ctx.stroke();
       }
@@ -1539,10 +1559,10 @@
     const tilt = (a.state === 'inpit') ? -a.side*0.28 : 0;
     const agitation = (a.state === 'inpit') ? (a.stun>0 ? 1.9 : 1.5) : 1;
 
-    // mjuk skugga under kroppen
+    // mjuk skugga under fötterna
     ctx.fillStyle = 'rgba(40,22,8,0.20)';
     ctx.beginPath();
-    ctx.ellipse(x, y + a.size*0.72, a.size*1.1, a.size*0.3, tilt, 0, Math.PI*2);
+    ctx.ellipse(x, y + a.size*0.12, a.size*1.15, a.size*0.24, tilt, 0, Math.PI*2);
     ctx.fill();
 
     ctx.save();
