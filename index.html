@@ -439,6 +439,42 @@
   const ctx = canvas.getContext('2d');
   let cssW = 0, cssH = 0, dpr = 1;
 
+  /* ---- background decor (regenerated per screen size) ---- */
+  let decor = { clouds: [], grass: [], pebbles: [] };
+  function makeDecor(){
+    const groundY = cssH * 0.30;
+    decor.clouds = [];
+    const nClouds = 3 + Math.floor(cssW/500);
+    for(let i=0;i<nClouds;i++){
+      decor.clouds.push({
+        x: Math.random()*cssW,
+        y: groundY * (0.15 + Math.random()*0.45),
+        scale: 0.7 + Math.random()*0.9,
+        speed: 4 + Math.random()*7
+      });
+    }
+    decor.grass = [];
+    const nGrass = Math.floor(cssW/55);
+    for(let i=0;i<nGrass;i++){
+      decor.grass.push({
+        x: Math.random()*cssW,
+        h: 7 + Math.random()*9,
+        lean: -0.35 + Math.random()*0.7,
+        shade: Math.random()
+      });
+    }
+    decor.pebbles = [];
+    const nPebbles = Math.floor(cssW/80);
+    for(let i=0;i<nPebbles;i++){
+      decor.pebbles.push({
+        x: Math.random()*cssW,
+        yFrac: 0.15 + Math.random()*0.75,
+        r: 2 + Math.random()*4,
+        shade: Math.random()
+      });
+    }
+  }
+
   function resize(){
     dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     cssW = window.innerWidth;
@@ -446,6 +482,7 @@
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
+    makeDecor();
   }
   window.addEventListener('resize', resize);
   resize();
@@ -500,6 +537,67 @@
     osc.connect(gain); gain.connect(audioCtx.destination);
     osc.start(t); osc.stop(t + dur + 0.02);
   }
+  let noiseBuffer = null;
+  function getNoiseBuffer(){
+    if(!noiseBuffer){
+      const len = Math.floor(audioCtx.sampleRate*0.5);
+      noiseBuffer = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+      const d = noiseBuffer.getChannelData(0);
+      for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    }
+    return noiseBuffer;
+  }
+  function playSandNoise(vol, dur){
+    if(muted || !audioCtx) return;
+    vol = vol || 0.16; dur = dur || 0.2;
+    const t = audioCtx.currentTime;
+    const src = audioCtx.createBufferSource();
+    src.buffer = getNoiseBuffer();
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.frequency.value = 2400;
+    filt.Q.value = 0.7;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(vol, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+    src.connect(filt); filt.connect(gain); gain.connect(audioCtx.destination);
+    src.start(t); src.stop(t+dur+0.03);
+  }
+  function playSadTrombone(){
+    if(muted || !audioCtx) return;
+    // klassisk "wah-wah-wah-waaaah": fyra fallande toner, sista lång med vibrato
+    const notes = [233.08, 220.00, 207.65, 196.00];
+    const durs  = [0.34, 0.34, 0.34, 1.25];
+    let t = audioCtx.currentTime + 0.05;
+    notes.forEach((f,i)=>{
+      const last = (i === notes.length-1);
+      const dur = durs[i];
+      const osc = audioCtx.createOscillator();
+      const filt = audioCtx.createBiquadFilter();
+      const gain = audioCtx.createGain();
+      osc.type = 'sawtooth';
+      filt.type = 'lowpass';
+      filt.frequency.value = 1100;
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.linearRampToValueAtTime(f*(last ? 0.78 : 0.93), t+dur*(last ? 1.0 : 0.85));
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(0.22, t+0.05);
+      gain.gain.setValueAtTime(0.22, t+dur*0.6);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+      if(last){
+        const lfo = audioCtx.createOscillator();
+        const lfoGain = audioCtx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 6.5;
+        lfoGain.gain.value = 7;
+        lfo.connect(lfoGain); lfoGain.connect(osc.frequency);
+        lfo.start(t+0.15); lfo.stop(t+dur+0.05);
+      }
+      osc.connect(filt); filt.connect(gain); gain.connect(audioCtx.destination);
+      osc.start(t); osc.stop(t+dur+0.05);
+      t += dur*0.92;
+    });
+  }
   function playYum(){
     if(muted || !audioCtx) return;
     const t0 = audioCtx.currentTime;
@@ -542,7 +640,10 @@
   function playSound(name){
     if(!audioCtx) return;
     switch(name){
-      case 'push': beep(320,0.07,'triangle',0.12); break;
+      case 'push':
+        playSandNoise(0.18, 0.22);
+        beep(150,0.06,'triangle',0.08);
+        break;
       case 'knock': beep(520,0.08,'square',0.10); break;
       case 'catch': playYum(); break;
       case 'levelup':
@@ -556,11 +657,7 @@
         beep(620,0.18,'sine',0.18,0.25);
         beep(120,0.24,'triangle',0.13,0.02);
         break;
-      case 'gameover':
-        beep(260,0.18,'sawtooth',0.16);
-        beep(180,0.18,'sawtooth',0.16,0.16);
-        beep(110,0.28,'sawtooth',0.16,0.32);
-        break;
+      case 'gameover': playSadTrombone(); break;
       case 'powerup':
         beep(90,0.32,'sawtooth',0.22);
         beep(70,0.36,'sawtooth',0.20,0.05);
@@ -997,6 +1094,7 @@
     powerProgress = 0;
     screenShakeTime = CONFIG.screenShakeDuration;
     playSound('powerup');
+    playSandNoise(0.30, 0.45);
 
     for(const a of ants){
       if(a.state === 'walking') convertToInPit(a, g);
@@ -1123,6 +1221,7 @@
         const g = geom();
         if(Math.random() < 9*dt){
           spawnFlickParticles(g.centerX + rand(-18,18), g.bottomY - 4);
+          if(Math.random() < 0.4) playSandNoise(0.08, 0.15);
         }
         if(introT >= INTRO_DIG_DUR){
           skipIntro();
@@ -1196,24 +1295,80 @@
   }
 
   /* ============ DRAW ============ */
+  function drawCloud(c){
+    const s = c.scale;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.ellipse(c.x, c.y, 34*s, 13*s, 0, 0, Math.PI*2);
+    ctx.ellipse(c.x-20*s, c.y+4*s, 20*s, 10*s, 0, 0, Math.PI*2);
+    ctx.ellipse(c.x+22*s, c.y+3*s, 22*s, 11*s, 0, 0, Math.PI*2);
+    ctx.ellipse(c.x+2*s, c.y-8*s, 18*s, 10*s, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+
   function drawBackground(g){
     const sky = ctx.createLinearGradient(0,0,0,g.groundY);
-    sky.addColorStop(0,'#bfe6ff');
+    sky.addColorStop(0,'#aeddfa');
     sky.addColorStop(1,'#eaf7ff');
     ctx.fillStyle = sky;
     ctx.fillRect(0,0,cssW,g.groundY);
 
-    // sun
+    // sun with glow
+    const sunX = cssW*0.85, sunY = g.groundY*0.35;
+    const glow = ctx.createRadialGradient(sunX,sunY,8,sunX,sunY,90);
+    glow.addColorStop(0,'rgba(255,240,170,0.95)');
+    glow.addColorStop(0.35,'rgba(255,225,130,0.45)');
+    glow.addColorStop(1,'rgba(255,225,130,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(sunX-90,sunY-90,180,180);
     ctx.beginPath();
-    ctx.arc(cssW*0.85, g.groundY*0.35, 34, 0, Math.PI*2);
-    ctx.fillStyle = 'rgba(255,235,150,0.9)';
+    ctx.arc(sunX, sunY, 30, 0, Math.PI*2);
+    ctx.fillStyle = '#fff3b8';
     ctx.fill();
+
+    // drifting clouds
+    const tNow = performance.now()*0.001;
+    for(const c of decor.clouds){
+      const cx = ((c.x + tNow*c.speed) % (cssW+140)) - 70;
+      drawCloud({x:cx, y:c.y, scale:c.scale});
+    }
 
     const ground = ctx.createLinearGradient(0,g.groundY,0,cssH);
     ground.addColorStop(0,'#e2c185');
     ground.addColorStop(1,'#a8783f');
     ctx.fillStyle = ground;
     ctx.fillRect(0,g.groundY,cssW,cssH-g.groundY);
+
+    // pebbles scattered in the ground (pit fill paints over the ones inside)
+    for(const p of decor.pebbles){
+      const py = g.groundY + (cssH-g.groundY)*p.yFrac;
+      ctx.fillStyle = p.shade < 0.5 ? 'rgba(122,84,44,0.55)' : 'rgba(160,118,68,0.6)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, py, p.r, p.r*0.7, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,235,190,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(p.x-p.r*0.3, py-p.r*0.3, p.r*0.35, p.r*0.22, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // grass tufts along the ground line, outside the pit
+    for(const t of decor.grass){
+      if(t.x > g.rimLeftX-70 && t.x < g.rimRightX+70) continue;
+      const col = t.shade < 0.5 ? '#8a9950' : '#a8a35e';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = 'round';
+      for(let b=-1;b<=1;b++){
+        ctx.beginPath();
+        ctx.moveTo(t.x, g.groundY+1);
+        ctx.quadraticCurveTo(
+          t.x + b*3 + t.lean*4, g.groundY - t.h*0.6,
+          t.x + b*5 + t.lean*t.h, g.groundY - t.h*(b===0?1:0.75)
+        );
+        ctx.stroke();
+      }
+    }
   }
 
   function drawPit(g){
@@ -1383,6 +1538,12 @@
     const mirror = (a.state === 'walking') ? (a.dir >= 0 ? 1 : -1) : (a.side >= 0 ? 1 : -1);
     const tilt = (a.state === 'inpit') ? -a.side*0.28 : 0;
     const agitation = (a.state === 'inpit') ? (a.stun>0 ? 1.9 : 1.5) : 1;
+
+    // mjuk skugga under kroppen
+    ctx.fillStyle = 'rgba(40,22,8,0.20)';
+    ctx.beginPath();
+    ctx.ellipse(x, y + a.size*0.72, a.size*1.1, a.size*0.3, tilt, 0, Math.PI*2);
+    ctx.fill();
 
     ctx.save();
     ctx.globalAlpha = alpha;
