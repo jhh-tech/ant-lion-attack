@@ -337,8 +337,8 @@
   <div class="panel">
     <h1>INSTÄLL<span>NINGAR</span></h1>
     <div class="settingRow">
-      <label>Antal myror på banan <b id="maxAntsVal">10</b></label>
-      <input type="range" id="maxAntsSlider" min="3" max="24" step="1" value="10">
+      <label>Antal myror på banan <b id="maxAntsVal">15</b></label>
+      <input type="range" id="maxAntsSlider" min="3" max="30" step="1" value="15">
       <div class="desc">Hur många myror som max får vandra runt och falla i gropen samtidigt.</div>
     </div>
     <div class="settingRow">
@@ -370,11 +370,11 @@
     energyMax: 100,
     energyDrainBase: 1.6,
     energyDrainPerLevel: 0.30,
-    spawnIntervalBase: 1.7,
-    spawnIntervalMin: 0.5,
+    spawnIntervalBase: 1.3,
+    spawnIntervalMin: 0.42,
     spawnIntervalLevelFactor: 0.11,
-    walkSpeedBase: 50,
-    walkSpeedVar: 22,
+    walkSpeedBase: 68,
+    walkSpeedVar: 26,
     climbSpeedBase: 40,
     climbSpeedLevelFactor: 3.2,
     passiveSlip: 9,
@@ -438,11 +438,11 @@
   }
 
   /* ============ SETTINGS ============ */
-  const settings = { maxAnts: 10, antSize: 1.0 };
+  const settings = { maxAnts: 15, antSize: 1.0 };
   (function loadSettings(){
     try{
       const raw = JSON.parse(localStorage.getItem('antLionAttackSettings') || '{}');
-      if(typeof raw.maxAnts === 'number') settings.maxAnts = Math.max(3, Math.min(24, raw.maxAnts));
+      if(typeof raw.maxAnts === 'number') settings.maxAnts = Math.max(3, Math.min(30, raw.maxAnts));
       if(typeof raw.antSize === 'number') settings.antSize = Math.max(0.6, Math.min(1.8, raw.antSize));
     }catch(e){}
   })();
@@ -988,6 +988,10 @@
     ant.side = (ant.x >= g.centerX) ? 1 : -1;
     ant.x = clamp(ant.x, g.rimLeftX+3, g.rimRightX-3);
     ant.dist = Math.abs(ant.x - g.centerX);
+    // steklar startar alltid högt upp så de hinner klättra ut av sig själva –
+    // ett stick sker bara om spelaren aktivt trycker ner dem
+    if(ant.hostile) ant.dist = Math.max(ant.dist, g.halfWidth*0.6);
+    ant.x = g.centerX + ant.side*ant.dist;
     ant.stun = 0.15;
     playSqueak(1);
   }
@@ -1028,8 +1032,12 @@
         a.x += a.dir*a.speed*dt;
         a.turnCooldown -= dt;
         if(a.turnCooldown <= 0){
-          if(Math.random() < 0.35) a.dir *= -1;
-          a.turnCooldown = rand(1.2, 3.2);
+          // dras mestadels mot gropen så färre vandrar bort och despawnar
+          const toward = (a.x < g.centerX) ? 1 : -1;
+          const r = Math.random();
+          if(r < 0.62) a.dir = toward;
+          else if(r < 0.80) a.dir = -toward;
+          a.turnCooldown = rand(1.0, 2.4);
         }
         if(a.x < -40 || a.x > cssW+40){ ants.splice(i,1); continue; }
         // blöt/hård sand: inga nya nedfall förrän den torkat
