@@ -1,10 +1,14 @@
-# 🦁 Ant Lion Attack
+# 🐜🕳️ Ant Lion Attack
 
 Ett litet 2D-arkadspel där du är ett **myrlejon** nedgrävt i botten av en sandgrop. Myror vandrar längs kanten — knuffa ner dem, kasta sand på dem så de glider mot botten, och ät dem för att överleva och växa dig större!
 
 **▶️ Spela här:** https://jhh-tech.github.io/ant-lion-attack/
 
+![Myrlejonet vandrar in och gräver sin grop](assets/gameplay.gif)
+
 Fungerar i webbläsaren på både dator och mobil (mus eller touch). Går att lägga till på hemskärmen som en app.
+
+![Skärmdump från spelet](assets/screenshot.png)
 
 ## Hur man spelar
 
