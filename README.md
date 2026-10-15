@@ -27,6 +27,14 @@ Här går du själv omkring som myrlejonet på en stor sandslätt:
 - **Kraftföremål:** honung, sockerbit, snabbfot, stålkäkar, djupgrop, pansar och feromon.
 - Du växer i sex stadier, och nivån stiger var 45:e sekund.
 
+### Installera som app (Android & dator)
+
+3D-versionen är en installerbar webbapp (PWA). Den startar i helskärm med egen ikon och fungerar offline när den väl är installerad.
+
+- **Android (Chrome):** öppna länken ovan och tryck på **📲 Installera** i startmenyn, eller välj ⋮ → *Installera app* / *Lägg till på startskärmen*.
+- **Dator (Chrome/Edge på Windows, Mac, Linux):** klicka på **📲 Installera** i startmenyn eller på installera-ikonen i adressfältet. Spelet hamnar sedan i startmenyn/dockan som ett vanligt program.
+- **iPhone/iPad (Safari):** Dela ⬆️ → *Lägg till på hemskärmen*.
+
 3D-versionen använder [three.js](https://threejs.org/) (en lokal kopia ligger i `3d/vendor/`, MIT-licens). Alla modeller och ljud genereras i kod. Eftersom den använder ES-moduler måste den serveras över HTTP (t.ex. `python -m http.server`) och kan inte öppnas direkt som fil.
 
 ## Hur man spelar (2D)

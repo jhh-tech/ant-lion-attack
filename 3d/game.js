@@ -1949,6 +1949,48 @@ function loop(now) {
   renderer.render(scene, camera);
 }
 
+// ============================================================
+// Installable app (PWA): offline cache, install button, fullscreen, wake lock
+// ============================================================
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+const isInstalled = () => window.matchMedia('(display-mode: fullscreen)').matches || window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (ev) => {
+  ev.preventDefault();
+  installPrompt = ev;
+  $('btnInstall').classList.remove('hidden');
+  $('installHint').classList.add('hidden');
+});
+window.addEventListener('appinstalled', () => { installPrompt = null; $('btnInstall').classList.add('hidden'); });
+$('btnInstall').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try { await installPrompt.userChoice; } catch (e) { /* ignore */ }
+  installPrompt = null;
+  $('btnInstall').classList.add('hidden');
+});
+if (!isInstalled() && /iPhone|iPad|iPod/.test(navigator.userAgent)) {
+  $('installHint').textContent = 'Tips: tryck på Dela ⬆️ och välj "Lägg till på hemskärmen" för att spela som app.';
+  $('installHint').classList.remove('hidden');
+}
+function toggleFullscreen() {
+  const d = document;
+  if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  else { const el = d.documentElement; const req = el.requestFullscreen || el.webkitRequestFullscreen; if (req) req.call(el).catch?.(() => {}); }
+}
+if (!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen) || isInstalled()) $('btnFull').classList.add('hidden');
+bindBtn('btnFull', toggleFullscreen);
+let wakeLock = null;
+async function keepAwake(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+    else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch (e) { wakeLock = null; }
+}
+setInterval(() => keepAwake(state === 'playing'), 2000);
+
 showBest();
 resetGame();
 updateCamera(1);

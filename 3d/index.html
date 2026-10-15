@@ -7,9 +7,12 @@
 <link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
 <link rel="icon" href="../icons/favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#c99a52">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ant Lion 3D">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="description" content="Myrlejonet i 3D: smyg runt i sanden, gräv ner dig, fånga myror och slåss mot steklar, spindlar och bönsyrsor.">
 <style>
   :root{
@@ -146,6 +149,7 @@
   <div id="bossbar" class="hidden"><div class="name" id="bossName">Bönsyrsa</div><div class="bar"><i id="bossFill"></i></div></div>
   <canvas id="minimap" width="300" height="300"></canvas>
   <div id="topbtns">
+    <button id="btnFull" title="Helskärm">⛶</button>
     <button id="btnPause" title="Paus (P)">⏸</button>
     <button id="btnMute" title="Ljud (M)">🔊</button>
   </div>
@@ -197,7 +201,11 @@
         <tr><td>🌸 Feromon</td><td>Lockar myror till dig</td></tr>
       </table>
     </details>
-    <button class="big" id="btnStart">Spela</button>
+    <div class="row">
+      <button class="big" id="btnStart">Spela</button>
+      <button class="big hidden" id="btnInstall" style="background:linear-gradient(#5a8a2a,#2f5a12)">📲 Installera</button>
+    </div>
+    <div class="tag hidden" id="installHint" style="font-size:12px;margin-top:8px"></div>
     <div class="best" id="menuBest"></div>
     <a class="link" href="../">← Klassiska 2D-versionen</a>
   </div>
