@@ -10,7 +10,26 @@ Fungerar i webbläsaren på både dator och mobil (mus eller touch). Går att l�
 
 ![Skärmdump från spelet](assets/screenshot.png)
 
-## Hur man spelar
+## 🆕 Ant Lion Attack 3D
+
+En ny 3D-version i isometrisk vy (à la Diablo) finns i mappen [`3d/`](3d/).
+
+**▶️ Spela här:** https://jhh-tech.github.io/ant-lion-attack/3d/
+
+Här går du själv omkring som myrlejonet på en stor sandslätt:
+
+- **Gå** genom att klicka/trycka på marken (håll in för att fortsätta gå) eller med `WASD`/piltangenterna.
+- **Hugg** genom att klicka på ett kryp, högerklicka eller trycka `F`.
+- **Gräv ner dig** med `Space`. Du gömmer dig för fiender och en grop växer fram runt dig. Myror och fiender som hamnar i gropen glider ner i dina käkar.
+- **Bakhåll:** hugg nedifrån sanden eller kliv upp bredvid en fiende för dubbel eller trippel skada.
+- **Sandskalv** (`Q`) när kraftmätaren är full.
+- **Fiender** från lätta till svåra: soldatmyror, pansrade skalbaggar, hoppande vargspindlar, störtdykande steklar, fåglar (gräv ner dig när skuggan kommer!) och bönsyrsan som boss.
+- **Kraftföremål:** honung, sockerbit, snabbfot, stålkäkar, djupgrop, pansar och feromon.
+- Du växer i sex stadier, och nivån stiger var 45:e sekund.
+
+3D-versionen använder [three.js](https://threejs.org/) (en lokal kopia ligger i `3d/vendor/`, MIT-licens). Alla modeller och ljud genereras i kod. Eftersom den använder ES-moduler måste den serveras över HTTP (t.ex. `python -m http.server`) och kan inte öppnas direkt som fil.
+
+## Hur man spelar (2D)
 
 - **Myror** kryper fram ur bona vid skärmkanterna och vandrar mot gropen. Tryck/klicka nära gropens kant för att knuffa in en myra, och tryck på myror som redan fallit ner för att kasta sand på dem så de glider mot botten – där de fångas.
 - **Energin** sjunker hela tiden. Fånga myror för att fylla på den. Tar energin slut är det game over.

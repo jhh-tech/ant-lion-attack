@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ant Lion Attack 3D</title>
+<link rel="icon" href="../icons/icon.svg" type="image/svg+xml">
+<link rel="icon" href="../icons/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<meta name="theme-color" content="#c99a52">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="description" content="Myrlejonet i 3D: smyg runt i sanden, gräv ner dig, fånga myror och slåss mot steklar, spindlar och bönsyrsor.">
+<style>
+  :root{
+    --panel:#2a170bdd;
+    --border:#7a4f27;
+    --text:#fbe9c9;
+    --accent:#ff8a3d;
+    --hp:#d8352a;
+    --en:#e8a21c;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#1a0f07;
+    font-family:'Trebuchet MS',Verdana,Arial,sans-serif;color:var(--text);
+    touch-action:none;overscroll-behavior:none;user-select:none;-webkit-user-select:none;
+  }
+  #game{display:block;width:100vw;height:100vh;touch-action:none;cursor:crosshair;}
+  .hidden{display:none !important;}
+
+  /* ---------- floating text & bars ---------- */
+  #floaters{position:fixed;inset:0;pointer-events:none;z-index:3;overflow:hidden;}
+  .ft{position:absolute;transform:translate(-50%,-50%);font-weight:bold;white-space:nowrap;
+      text-shadow:0 2px 0 #000,0 0 6px #000;font-size:18px;}
+  .ebar{position:absolute;width:44px;height:6px;margin-left:-22px;background:#000a;border:1px solid #000;border-radius:3px;overflow:hidden;}
+  .ebar > i{display:block;height:100%;background:linear-gradient(#ff6a4a,#b0201a);}
+
+  /* ---------- HUD ---------- */
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:5;}
+  .panel{background:var(--panel);border:2px solid var(--border);border-radius:10px;box-shadow:0 3px 10px #0008;}
+  #tl{position:absolute;top:max(10px,env(safe-area-inset-top));left:12px;padding:8px 12px;min-width:150px;}
+  #tl .score{font-size:26px;font-weight:bold;color:#ffd27a;line-height:1;}
+  #tl .score small{font-size:12px;color:var(--text);font-weight:normal;}
+  #stage{font-size:14px;margin-top:4px;color:#ffe6b8;}
+  #level{font-size:12px;opacity:.8;}
+  #combo{font-size:16px;font-weight:bold;color:var(--accent);min-height:0;}
+  #buffs{position:absolute;top:calc(max(10px,env(safe-area-inset-top)) + 100px);left:12px;display:flex;flex-direction:column;gap:4px;}
+  .buff{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:2px 8px;font-size:13px;display:flex;gap:6px;align-items:center;}
+  .buff b{color:#ffd27a;min-width:24px;text-align:right;}
+  #minimap{position:absolute;top:max(10px,env(safe-area-inset-top));right:12px;width:150px;height:150px;border-radius:50%;
+           border:3px solid var(--border);box-shadow:0 3px 10px #0008;background:#3a2412;}
+  #topbtns{position:absolute;top:calc(max(10px,env(safe-area-inset-top)) + 160px);right:12px;display:flex;gap:6px;pointer-events:auto;}
+  #topbtns button{width:40px;height:40px;border-radius:50%;font-size:18px;background:var(--panel);border:2px solid var(--border);color:var(--text);cursor:pointer;}
+  #bossbar{position:absolute;top:max(14px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(380px,50vw);text-align:center;}
+  #bossbar .name{font-size:14px;font-weight:bold;color:#c9ff9a;text-shadow:0 2px 0 #000;}
+  #bossbar .bar{height:12px;background:#000a;border:2px solid #000;border-radius:6px;overflow:hidden;margin-top:2px;}
+  #bossbar .bar i{display:block;height:100%;background:linear-gradient(#9bff6a,#3c8a1c);transition:width .15s;}
+
+  #msg{position:absolute;top:24%;left:0;right:0;text-align:center;pointer-events:none;transition:opacity .4s;}
+  #msgMain{font-size:clamp(26px,5vw,44px);font-weight:bold;color:#ffd27a;text-shadow:0 3px 0 #000,0 0 14px #000;}
+  #msgSub{font-size:clamp(14px,2.4vw,20px);margin-top:6px;text-shadow:0 2px 0 #000,0 0 8px #000;}
+
+  #bottom{position:absolute;left:0;right:0;bottom:max(8px,env(safe-area-inset-bottom));display:flex;justify-content:center;align-items:flex-end;gap:14px;padding:0 10px;}
+  .orb{position:relative;width:104px;height:104px;border-radius:50%;overflow:hidden;border:4px solid #4a2c12;
+       background:#120804;box-shadow:0 0 0 2px #b88a4a,0 4px 14px #000a, inset 0 0 18px #000;}
+  .orb .fill{position:absolute;left:0;right:0;bottom:0;height:100%;transition:height .15s;}
+  .orb.hp .fill{background:radial-gradient(circle at 35% 30%,#ff8a7a,var(--hp) 45%,#5a0b06);}
+  .orb.en .fill{background:radial-gradient(circle at 35% 30%,#ffe08a,var(--en) 45%,#6a4304);}
+  .orb::after{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle at 32% 22%,#fff6 0,#fff0 35%);}
+  .orb span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px;text-shadow:0 2px 0 #000;z-index:2;}
+  .orb label{position:absolute;bottom:14px;left:0;right:0;text-align:center;font-size:11px;z-index:2;text-shadow:0 1px 0 #000;opacity:.9;}
+  #skills{display:flex;gap:8px;margin-bottom:6px;pointer-events:auto;}
+  .skill{position:relative;width:68px;height:68px;border-radius:12px;background:linear-gradient(#5a3a1c,#2a170b);border:2px solid #b88a4a;color:var(--text);
+         cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0;overflow:hidden;font-family:inherit;}
+  .skill:active{transform:scale(.95);}
+  .skill .ico{font-size:26px;line-height:1;}
+  .skill .name{font-size:11px;margin-top:2px;}
+  .skill .key{position:absolute;top:2px;right:4px;font-size:9px;opacity:.7;}
+  .skill .cd{position:absolute;left:0;right:0;bottom:0;background:#000a;height:0;}
+  .skill .charge{position:absolute;left:0;bottom:0;height:4px;background:var(--accent);width:0;}
+  .skill.ready{box-shadow:0 0 12px var(--accent);border-color:var(--accent);animation:pulse 1s infinite alternate;}
+  .skill.on{border-color:#7cff8a;box-shadow:0 0 10px #7cff8a;}
+  .skill.disabled{opacity:.5;}
+  @keyframes pulse{from{box-shadow:0 0 6px var(--accent);}to{box-shadow:0 0 18px var(--accent);}}
+
+  #vignette{position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .25s;
+            background:radial-gradient(ellipse at center,#0000 50%,#c00a 100%);}
+  #burrowTint{position:fixed;inset:0;pointer-events:none;z-index:4;opacity:0;transition:opacity .4s;
+            background:radial-gradient(ellipse at center,#0000 55%,#3a2208cc 100%);}
+
+  /* ---------- screens ---------- */
+  .screen{position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;background:#1a0d05aa;padding:16px;}
+  .card{background:linear-gradient(#3a2312f2,#22140af2);border:3px solid #b88a4a;border-radius:16px;padding:22px 26px;max-width:560px;width:100%;
+        box-shadow:0 10px 40px #000c;max-height:100%;overflow:auto;}
+  .card h1{margin:0 0 4px;font-size:clamp(30px,6vw,46px);color:#ffd27a;text-shadow:0 3px 0 #000;text-align:center;letter-spacing:1px;}
+  .card h1 em{font-style:normal;color:var(--accent);}
+  .card h2{margin:0 0 12px;font-size:28px;color:#ffd27a;text-align:center;}
+  .card .tag{text-align:center;opacity:.85;margin-bottom:14px;}
+  .card ul{margin:0 0 14px;padding-left:20px;line-height:1.5;font-size:14px;}
+  .card table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px;}
+  .card td{padding:3px 4px;border-bottom:1px solid #fff1;}
+  .card td:first-child{white-space:nowrap;}
+  .big{display:block;margin:10px auto 0;font-size:22px;font-weight:bold;padding:12px 40px;border-radius:12px;border:3px solid #ffd27a;
+       background:linear-gradient(var(--accent),#c85e1a);color:#fff;text-shadow:0 2px 0 #0006;cursor:pointer;font-family:inherit;}
+  .big:hover{filter:brightness(1.1);}
+  .row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  .link{display:block;text-align:center;margin-top:12px;color:#ffd27a;font-size:13px;}
+  .stats{font-size:16px;line-height:1.7;text-align:center;margin-bottom:6px;}
+  .stats b{color:#ffd27a;}
+  .best{text-align:center;color:var(--accent);font-weight:bold;margin-top:6px;}
+  kbd{background:#0006;border:1px solid #fff3;border-radius:4px;padding:0 5px;font-size:12px;}
+  details{margin-bottom:10px;font-size:13px;}
+  summary{cursor:pointer;color:#ffd27a;margin-bottom:6px;}
+
+  @media (max-width:640px), (max-height:520px){
+    .orb{width:74px;height:74px;}
+    .orb span{font-size:14px;}
+    .orb label{bottom:8px;font-size:9px;}
+    .skill{width:56px;height:56px;}
+    .skill .ico{font-size:22px;}
+    .skill .key{display:none;}
+    #minimap{width:104px;height:104px;}
+    #topbtns{top:calc(max(10px,env(safe-area-inset-top)) + 112px);}
+    #tl{min-width:0;padding:6px 10px;}
+    #tl .score{font-size:20px;}
+    #buffs{top:calc(max(10px,env(safe-area-inset-top)) + 86px);}
+    #bossbar{top:calc(max(10px,env(safe-area-inset-top)) + 120px);width:70vw;}
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="floaters"></div>
+<div id="burrowTint"></div>
+<div id="vignette"></div>
+
+<div id="hud" class="hidden">
+  <div id="tl" class="panel">
+    <div class="score"><span id="score">0</span> <small>poäng</small></div>
+    <div id="stage">Larv</div>
+    <div id="level">Nivå 1</div>
+    <div id="combo"></div>
+  </div>
+  <div id="buffs"></div>
+  <div id="bossbar" class="hidden"><div class="name" id="bossName">Bönsyrsa</div><div class="bar"><i id="bossFill"></i></div></div>
+  <canvas id="minimap" width="300" height="300"></canvas>
+  <div id="topbtns">
+    <button id="btnPause" title="Paus (P)">⏸</button>
+    <button id="btnMute" title="Ljud (M)">🔊</button>
+  </div>
+  <div id="msg"><div id="msgMain"></div><div id="msgSub"></div></div>
+  <div id="bottom">
+    <div class="orb hp"><div class="fill" id="hpFill"></div><span id="hpText">100</span><label>Hälsa</label></div>
+    <div id="skills">
+      <button id="btnBite" class="skill"><span class="key">F</span><span class="ico">🦷</span><span class="name">Hugg</span><div class="cd" id="biteCd"></div></button>
+      <button id="btnDig" class="skill"><span class="key">Space</span><span class="ico">🕳️</span><span class="name" id="digName">Gräv ner</span></button>
+      <button id="btnQuake" class="skill disabled"><span class="key">Q</span><span class="ico">🌋</span><span class="name">Skalv</span><div class="charge" id="quakeFill"></div></button>
+    </div>
+    <div class="orb en"><div class="fill" id="enFill"></div><span id="enText">100</span><label>Energi</label></div>
+  </div>
+</div>
+
+<div id="menu" class="screen">
+  <div class="card">
+    <h1>Ant Lion Attack <em>3D</em></h1>
+    <div class="tag">Du är myrlejonet. Smyg runt i sanden, gräv ner dig och vänta på bytet.</div>
+    <ul>
+      <li><b>Gå:</b> klicka/tryck på marken (håll in för att fortsätta gå) eller <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / piltangenter.</li>
+      <li><b>Hugg:</b> klicka på ett kryp, högerklicka eller <kbd>F</kbd>.</li>
+      <li><b>Gräv ner dig:</b> <kbd>Space</kbd>. Då gömmer du dig för fiender och en grop växer fram runt dig. Myror som ramlar ner glider rakt in i dina käkar.</li>
+      <li><b>Bakhåll:</b> hugger du nedifrån, eller kliver upp ur sanden bredvid en fiende, gör du dubbel eller trippel skada.</li>
+      <li><b>Skalv:</b> <kbd>Q</kbd> när mätaren är full. Drar in och bedövar allt runt omkring dig.</li>
+      <li>Energin sjunker hela tiden. Ät för att hålla dig mätt. Är du mätt läker du.</li>
+    </ul>
+    <details>
+      <summary>Kryp du kommer att möta</summary>
+      <table>
+        <tr><td>🐜 Myra</td><td>Lätt byte. Flyr om den ser dig.</td></tr>
+        <tr><td>🔴 Soldatmyra</td><td>Lätt fiende. Bits, men ramlar lätt ner i gropen.</td></tr>
+        <tr><td>🪲 Skalbagge</td><td>Långsam och pansrad. Halv skada utom vid bakhåll.</td></tr>
+        <tr><td>🕷️ Vargspindel</td><td>Snabb och hoppar på dig. Fastnar bara i stora gropar.</td></tr>
+        <tr><td>🐝 Stekel</td><td>Störtdyker från luften. Hugg den när den landat.</td></tr>
+        <tr><td>🦅 Fågel</td><td>Går inte att besegra. Gräv ner dig när skuggan kommer!</td></tr>
+        <tr><td>🦗 Bönsyrsa</td><td>Boss. Känner vibrationer i sanden. Undvik det röda fältet.</td></tr>
+      </table>
+    </details>
+    <details>
+      <summary>Kraftföremål</summary>
+      <table>
+        <tr><td>🍯 Honung</td><td>+40 hälsa</td></tr>
+        <tr><td>🍬 Sockerbit</td><td>+50 energi</td></tr>
+        <tr><td>⚡ Snabbfot</td><td>Springer snabbare</td></tr>
+        <tr><td>🦷 Stålkäkar</td><td>Dubbel skada</td></tr>
+        <tr><td>🕳️ Djupgrop</td><td>Större grop som grävs fortare</td></tr>
+        <tr><td>🛡️ Pansar</td><td>Tar mycket mindre skada</td></tr>
+        <tr><td>🌸 Feromon</td><td>Lockar myror till dig</td></tr>
+      </table>
+    </details>
+    <button class="big" id="btnStart">Spela</button>
+    <div class="best" id="menuBest"></div>
+    <a class="link" href="../">← Klassiska 2D-versionen</a>
+  </div>
+</div>
+
+<div id="pause" class="screen hidden">
+  <div class="card">
+    <h2>Paus</h2>
+    <div class="row">
+      <button class="big" id="btnResume">Fortsätt</button>
+      <button class="big" id="btnQuit" style="background:linear-gradient(#6a4a2a,#3a2312)">Avsluta</button>
+    </div>
+  </div>
+</div>
+
+<div id="over" class="screen hidden">
+  <div class="card">
+    <h2 id="overTitle">Game over</h2>
+    <div class="tag" id="overReason"></div>
+    <div class="stats" id="overStats"></div>
+    <div class="best" id="overBest"></div>
+    <button class="big" id="btnAgain">Spela igen</button>
+  </div>
+</div>
+
+<noscript><div class="screen"><div class="card">Spelet kräver JavaScript.</div></div></noscript>
+<script type="module" src="game.js"></script>
+</body>
+</html>
