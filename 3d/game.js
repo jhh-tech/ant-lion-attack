@@ -701,27 +701,119 @@ function ac() {
   if (actx.state === 'suspended') actx.resume();
   return actx;
 }
-function tone(freq, dur, type = 'sine', vol = 0.12, delay = 0, slide = null) {
+function tone(freq, dur, type = 'sine', vol = 0.12, delay = 0, slide = null, dest = null) {
   const a = ac(); if (!a || muted) return;
   const t = a.currentTime + delay;
   const o = a.createOscillator(), g = a.createGain();
   o.type = type; o.frequency.setValueAtTime(freq, t);
   if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
   g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(a.destination); o.start(t); o.stop(t + dur + 0.02);
+  o.connect(g).connect(dest || a.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function getNoiseBuf(a) {
+  if (!noiseBuf) {
+    noiseBuf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
+    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noiseBuf;
 }
 function noise(dur, vol = 0.1, freq = 1200, delay = 0, q = 0.8) {
   const a = ac(); if (!a || muted) return;
-  if (!noiseBuf) {
-    noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate);
-    const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-  }
+  getNoiseBuf(a);
   const t = a.currentTime + delay;
   const s = a.createBufferSource(); s.buffer = noiseBuf;
   const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
   const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   s.connect(f).connect(g).connect(a.destination); s.start(t, Math.random() * 0.5); s.stop(t + dur + 0.02);
 }
+// ---------------- Ambience: wind, crickets, birds, threat drone, heartbeat ----------------
+// Everything runs through one master gain + lowpass so it can fade with pause/mute and be
+// muffled while the player is underground.
+let amb = null;
+function ambientStart() {
+  const a = actx;
+  if (!a || amb) return;
+  const master = a.createGain(); master.gain.value = 0;
+  const muffle = a.createBiquadFilter(); muffle.type = 'lowpass'; muffle.frequency.value = 9000;
+  master.connect(muffle).connect(a.destination);
+  // wind: looping noise through a wandering bandpass
+  const wind = a.createBufferSource(); wind.buffer = getNoiseBuf(a); wind.loop = true;
+  const windBp = a.createBiquadFilter(); windBp.type = 'bandpass'; windBp.frequency.value = 400; windBp.Q.value = 0.7;
+  const windGain = a.createGain(); windGain.gain.value = 0.04;
+  wind.connect(windBp).connect(windGain).connect(master); wind.start();
+  // threat drone: two detuned saws, filtered dark
+  const droneLp = a.createBiquadFilter(); droneLp.type = 'lowpass'; droneLp.frequency.value = 160;
+  const droneGain = a.createGain(); droneGain.gain.value = 0;
+  droneLp.connect(droneGain).connect(master);
+  for (const f of [55, 55.6, 82.4]) {
+    const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(droneLp); o.start();
+  }
+  amb = { master, muffle, windBp, windGain, droneLp, droneGain, t: 0, chirpT: 1, birdT: rand(6, 14), beatT: 0, tension: 0 };
+}
+function cricket(vol) {
+  const f = rand(4200, 4900), n = 3 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < n; i++) tone(f, 0.025, 'sine', vol, i * 0.05, null, amb.master);
+}
+function distantBird(vol) {
+  const f = rand(2200, 3200);
+  tone(f, 0.12, 'sine', vol, 0, f * 1.35, amb.master);
+  tone(f * 1.25, 0.18, 'sine', vol * 0.8, 0.16, f * 0.9, amb.master);
+  if (Math.random() < 0.5) tone(f * 1.1, 0.1, 'sine', vol * 0.7, 0.4, f * 1.4, amb.master);
+}
+function heartbeat(vol) {
+  tone(60, 0.12, 'sine', vol, 0, 40, amb.master);
+  tone(55, 0.14, 'sine', vol * 0.7, 0.18, 38, amb.master);
+}
+function updateAmbient(dt) {
+  if (!actx) return;
+  if (!amb) ambientStart();
+  if (!amb) return;
+  const now = actx.currentTime, p = player;
+  const target = muted || state === 'paused' ? 0 : state === 'over' ? 0.15 : state === 'menu' ? 0.6 : 1;
+  amb.master.gain.setTargetAtTime(target, now, 0.4);
+  if (target === 0) return;
+  amb.t += dt;
+  const t = amb.t;
+  // gusty wind
+  const gust = (0.5 + 0.5 * Math.sin(t * 0.13)) * (0.5 + 0.5 * Math.sin(t * 0.37 + 1.3));
+  amb.windGain.gain.setTargetAtTime(0.025 + 0.06 * gust, now, 0.6);
+  amb.windBp.frequency.setTargetAtTime(280 + 420 * gust + 60 * Math.sin(t * 1.1), now, 0.6);
+  // underground: everything muffled
+  const buried = state === 'playing' && (p.burrowed || p.action === 'sinking');
+  amb.muffle.frequency.setTargetAtTime(buried ? 650 : 9000, now, 0.25);
+  // threat level from nearby hostiles, the bird and the boss
+  let threat = 0;
+  if (state === 'playing') {
+    for (const e of entities) {
+      if (e.dead || !e.t.hostile) continue;
+      const d = dist(e, p);
+      if (d < 18) threat += (e.t.boss ? 3 : e.aggro ? 1 : 0.5) * (1 - d / 18);
+    }
+    if (bird.state === 'track' || bird.state === 'lock') threat += 2;
+  }
+  amb.tension = lerp(amb.tension, clamp(threat / 3, 0, 1), Math.min(1, dt * 1.5));
+  const k = amb.tension;
+  amb.droneGain.gain.setTargetAtTime(k * 0.07, now, 0.5);
+  amb.droneLp.frequency.setTargetAtTime(140 + k * 500, now, 0.5);
+  // calm-life: crickets and distant birds fade out as tension rises
+  const calm = 1 - k;
+  amb.chirpT -= dt;
+  if (amb.chirpT <= 0) {
+    amb.chirpT = rand(0.5, 2.2);
+    if (calm > 0.2) cricket(0.012 * calm);
+  }
+  amb.birdT -= dt;
+  if (amb.birdT <= 0) {
+    amb.birdT = rand(8, 20);
+    if (calm > 0.5) distantBird(0.012 * calm);
+  }
+  // heartbeat when health is low
+  if (state === 'playing' && p.hp / p.maxHp < 0.3) {
+    amb.beatT -= dt;
+    if (amb.beatT <= 0) { amb.beatT = p.hp / p.maxHp < 0.15 ? 0.6 : 0.85; heartbeat(0.25); }
+  }
+}
+
 const SFX = {
   bite: () => { noise(0.08, 0.25, 2500, 0, 2); tone(180, 0.08, 'square', 0.06); },
   whiff: () => noise(0.12, 0.08, 900, 0, 0.6),
@@ -1945,6 +2037,7 @@ function loop(now) {
     updateMarkers(dt);
     if (msgT > 0) { msgT -= dt; if (msgT <= 0) $('msg').style.opacity = '0'; }
   }
+  updateAmbient(dt);
   updateCamera(dt);
   renderer.render(scene, camera);
 }
@@ -2000,5 +2093,7 @@ requestAnimationFrame(loop);
 window.__antlion = {
   player, entities, pits, powerups, bird, startGame, toggleBurrow, spawnEntity, playerBite, quake, startBird, spawnPowerup,
   get state() { return state; },
+  get amb() { return amb; },
+  updateAmbient,
   simulate(seconds) { for (let t = 0; t < seconds && state === 'playing'; t += 1 / 60) { stepGame(1 / 60); particles.update(1 / 60); } },
 };
