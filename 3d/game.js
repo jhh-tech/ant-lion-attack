@@ -44,9 +44,11 @@ const TYPES = {
   beetle:  { name: 'Skalbagge',   hp: 10, speed: 1.7, radius: 0.75, resist: 4.6, points: 45,  energy: 25, scale: 1.2, hostile: true, dmg: 10, range: 1.5, cd: 1.8, sight: 7,  windup: 0.5, armor: 0.5 },
   spider:  { name: 'Vargspindel', hp: 7,  speed: 5.2, radius: 0.65, resist: 5.4, points: 70,  energy: 25, scale: 1.1, hostile: true, dmg: 12, range: 1.3, cd: 1.4, sight: 13, windup: 0.25 },
   wasp:    { name: 'Stekel',      hp: 4,  speed: 6.0, radius: 0.5,  resist: 99,  points: 90,  energy: 20, scale: 1.4, hostile: true, dmg: 15, range: 1.4, cd: 3.0, sight: 14, flying: true },
-  mantis:  { name: 'Bönsyrsa',    hp: 45, speed: 2.6, radius: 1.1,  resist: 99,  points: 500, energy: 60, scale: 1.6, hostile: true, dmg: 24, range: 3.0, cd: 2.4, sight: 16, windup: 0.8, boss: true },
+  nymph:   { name: 'Trollsländelarv', hp: 5, speed: 3.2, radius: 0.5, resist: 99, points: 60, energy: 20, scale: 1.3, hostile: true, aquatic: true, dmg: 7, range: 2.0, cd: 1.6, windup: 0.4 },
+  dragonfly: { name: 'Trollslända', defName: 'Trollsländan', hp: 35, speed: 9, radius: 0.9, resist: 99, points: 450, energy: 50, scale: 1.8, hostile: true, flying: true, boss: true, dmg: 18, range: 1.5, cd: 1.5, sight: 24 },
+  mantis:  { name: 'Bönsyrsa', defName: 'Bönsyrsan', hp: 45, speed: 2.6, radius: 1.1,  resist: 99,  points: 500, energy: 60, scale: 1.6, hostile: true, dmg: 24, range: 3.0, cd: 2.4, sight: 16, windup: 0.8, boss: true },
 };
-const DROP_CHANCE = { ant: 0, soldier: 0.08, beetle: 0.25, spider: 0.25, wasp: 0.3, mantis: 1 };
+const DROP_CHANCE = { ant: 0, soldier: 0.08, beetle: 0.25, spider: 0.25, wasp: 0.3, nymph: 0.35, mantis: 1, dragonfly: 1 };
 
 const POWERUPS = {
   honey:  { name: 'Honungsdroppe', emoji: '🍯', color: '#ffb300', desc: '+40 hälsa', w: 3 },
@@ -55,6 +57,7 @@ const POWERUPS = {
   jaws:   { name: 'Stålkäkar',     emoji: '🦷', color: '#e8e8e8', dur: 15, desc: 'Dubbel skada i 15 s', w: 2 },
   deep:   { name: 'Djupgrop',      emoji: '🕳️', color: '#c08a4a', dur: 20, desc: 'Större grop i 20 s', w: 2 },
   shield: { name: 'Pansar',        emoji: '🛡️', color: '#7cff8a', dur: 15, desc: 'Tål mer i 15 s', w: 2 },
+  swim:   { name: 'Vattendroppe',  emoji: '💧', color: '#3fb8ff', dur: 15, desc: 'Simma i pölar och skada larverna i 15 s', w: 1.5 },
   lure:   { name: 'Feromon',       emoji: '🌸', color: '#ff5fa2', dur: 15, desc: 'Lockar myror i 15 s', w: 2 },
 };
 const QUAKE_COST = 400;
@@ -118,13 +121,30 @@ const CELL = GRID_SIZE / GRID_N;
 const HALF = GRID_SIZE / 2;
 const VN = GRID_N + 1;
 
-function baseHeight(x, z) {
+function naturalHeight(x, z) {
   let h = 0.35 * Math.sin(x * 0.11) * Math.cos(z * 0.09)
         + 0.25 * Math.sin(x * 0.23 + z * 0.17)
         + 0.10 * Math.sin(x * 0.5 - z * 0.41)
         + 0.05 * Math.sin(x * 1.3 + z * 0.9);
   const e = Math.max(Math.abs(x), Math.abs(z));
   h += smoothstep(WORLD - 6, WORLD + 18, e) * 7 * (0.8 + 0.2 * Math.sin(x * 0.2 + z * 0.3));
+  return h;
+}
+// Ponds: water-filled basins. Game logic treats each as a circle of radius r.
+const PONDS_DEF = [[-14, 18, 5.5], [20, 8, 6.5], [-22, -6, 5], [8, -26, 6], [38, -8, 5.5], [-8, 38, 6], [-40, 22, 5], [24, 40, 5.5]];
+const ponds = PONDS_DEF.map(([x, z, r]) => ({ x, z, r, level: naturalHeight(x, z) + 0.05 }));
+function pondAt(x, z, margin = 0) {
+  for (const q of ponds) if (Math.hypot(x - q.x, z - q.z) < q.r + margin) return q;
+  return null;
+}
+function baseHeight(x, z) {
+  let h = naturalHeight(x, z);
+  for (const q of ponds) {
+    const t = Math.hypot(x - q.x, z - q.z) / q.r;
+    if (t >= 1.45) continue;
+    if (t < 1) h = q.level - 0.06 - 0.85 * (1 - t * t);
+    else h = lerp(q.level + 0.04, h, smoothstep(1, 1.45, t));
+  }
   return h;
 }
 function hash2(x, z) { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); }
@@ -140,6 +160,7 @@ const terrain = (() => {
   const col = new Float32Array(V * 3);
   const baseCol = new Float32Array(V * 3);
   const cA = new THREE.Color(0xc9a062), cB = new THREE.Color(0xe8cc92), cDark = new THREE.Color(0xa87d45), tmp = new THREE.Color();
+  const cMud = new THREE.Color(0x4e4a2c), cWet = new THREE.Color(0x8f7044);
   for (let iz = 0; iz < VN; iz++) {
     for (let ix = 0; ix < VN; ix++) {
       const i = iz * VN + ix;
@@ -150,6 +171,11 @@ const terrain = (() => {
       const n = 0.5 + 0.5 * Math.sin(x * 0.07 + Math.sin(z * 0.05) * 2) * Math.cos(z * 0.06);
       tmp.copy(cA).lerp(cB, n * 0.8 + hash2(ix, iz) * 0.2);
       if (hash2(ix * 3.1, iz * 1.7) > 0.93) tmp.lerp(cDark, 0.35);
+      for (const q of ponds) {
+        const t = Math.hypot(x - q.x, z - q.z) / q.r;
+        if (t < 1) tmp.lerp(cMud, 0.8);
+        else if (t < 1.4) tmp.lerp(cWet, 0.65 * (1 - smoothstep(1, 1.4, t)));
+      }
       baseCol[i * 3] = col[i * 3] = tmp.r;
       baseCol[i * 3 + 1] = col[i * 3 + 1] = tmp.g;
       baseCol[i * 3 + 2] = col[i * 3 + 2] = tmp.b;
@@ -237,7 +263,9 @@ function updatePits(dt) {
     const pit = pits[i];
     if (pit.owned && p.burrowed) {
       const deep = p.buffs.deep > 0;
-      const targetR = STAGES[p.stage].pit * (deep ? 1.4 : 1);
+      let targetR = STAGES[p.stage].pit * (deep ? 1.4 : 1);
+      for (const q of ponds) targetR = Math.min(targetR, Math.hypot(pit.x - q.x, pit.z - q.z) - q.r - 0.4);
+      targetR = Math.max(0.6, targetR);
       pit.r = Math.min(targetR, pit.r + (deep ? 2.0 : 1.0) * dt);
       pit.depth = lerp(pit.depth, pit.r * 0.34, Math.min(1, dt * 2));
     } else {
@@ -501,6 +529,60 @@ function buildMantis() {
   return M;
 }
 
+// ---------------- Dragonfly nymph (lives in ponds) ----------------
+function buildNymph() {
+  const M = newModel();
+  const m = track(M, mat(0x5b5a2c, 0.9));
+  const dk = track(M, mat(0x3a3a1a, 0.9));
+  const B = M.body;
+  B.position.y = 0.12;
+  const abd = ell(0.28, 0.12, 0.42, m); abd.position.set(0, 0, -0.32); B.add(abd);
+  for (let i = 0; i < 4; i++) { const r = ell(0.27 - i * 0.04, 0.02, 0.04, dk, G.sphereLo, false); r.position.set(0, 0.1 - i * 0.01, -0.15 - i * 0.13); B.add(r); }
+  const thx = ell(0.2, 0.12, 0.17, m); thx.position.set(0, 0.01, 0.08); B.add(thx);
+  const hd = ell(0.2, 0.1, 0.14, m); hd.position.set(0, 0.02, 0.3); B.add(hd);
+  const eyeM = mat(0x1a1a10, 0.3);
+  for (const s of [1, -1]) { const e = ell(0.07, 0.07, 0.07, eyeM, G.sphereLo, false); e.position.set(s * 0.14, 0.06, 0.33); B.add(e); }
+  // the extendable "mask" (labium) it strikes with
+  const mask = new THREE.Group(); mask.position.set(0, -0.05, 0.36);
+  mask.add(seg(V3(0, 0, 0), V3(0, 0, 0.25), 0.035, dk, true));
+  for (const s of [1, -1]) {
+    const c = new THREE.Mesh(G.cone, dk); c.scale.set(0.02, 0.1, 0.02);
+    c.position.set(s * 0.04, 0, 0.27); c.rotation.set(1.4, 0, -s * 0.4); mask.add(c);
+  }
+  B.add(mask); M.parts.mask = mask;
+  for (const s of [-1, 0, 1]) { const c = new THREE.Mesh(G.cone, dk); c.scale.set(0.02, 0.15, 0.02); c.position.set(s * 0.05, 0, -0.72); c.rotation.x = -1.6; B.add(c); }
+  addLegSet(M, B, dk, { zs: [0.14, 0.06, -0.02], yaws: [0.8, 0.1, -0.7], hipX: 0.15, hipY: 0.12, len: 0.42, thick: 0.025, kneeUp: 0.35 });
+  return M;
+}
+
+// ---------------- Dragonfly (boss) ----------------
+function buildDragonfly() {
+  const M = newModel();
+  const blue = track(M, mat(0x1f8fc0, 0.3, 0.5));
+  const dark = track(M, mat(0x0e2a3a, 0.4, 0.3));
+  const eyeM = track(M, mat(0x3fcf6a, 0.15, 0.3));
+  const wingM = new THREE.MeshStandardMaterial({ color: 0xdff4ff, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.2, side: THREE.DoubleSide, depthWrite: false });
+  const B = M.body;
+  const thx = ell(0.2, 0.2, 0.28, blue); thx.position.set(0, 0, 0.05); B.add(thx);
+  const hd = ell(0.15, 0.14, 0.12, dark); hd.position.set(0, 0.02, 0.33); B.add(hd);
+  for (const s of [1, -1]) { const e = ell(0.13, 0.13, 0.12, eyeM); e.position.set(s * 0.1, 0.06, 0.36); B.add(e); }
+  for (let i = 0; i < 9; i++) {
+    const r = 0.075 - i * 0.004;
+    const sg = ell(r, r, 0.09, i % 2 ? dark : blue); sg.position.set(0, -0.02, -0.25 - i * 0.15); B.add(sg);
+  }
+  const wings = [];
+  for (const [z, len] of [[0.12, 1.15], [-0.08, 1.05]]) {
+    for (const s of [1, -1]) {
+      const piv = new THREE.Group(); piv.position.set(s * 0.12, 0.16, z);
+      const w = new THREE.Mesh(G.sphereLo, wingM); w.scale.set(len * 0.5, 0.008, 0.13); w.position.set(s * len * 0.5, 0, 0);
+      piv.add(w); B.add(piv); wings.push({ piv, s, ph: z > 0 ? 0 : 1.2 });
+    }
+  }
+  M.parts.wings = wings;
+  for (let i = 0; i < 3; i++) for (const s of [1, -1]) B.add(seg(V3(s * 0.05, -0.12, 0.15 - i * 0.07), V3(s * 0.14, -0.35, 0.25 - i * 0.1), 0.012, dark));
+  return M;
+}
+
 // ---------------- Bird (hazard) ----------------
 function buildBird() {
   const M = newModel();
@@ -528,7 +610,7 @@ function buildBird() {
 const rocks = [];   // {x, z, r}
 const anthills = [];
 (function buildDecor() {
-  const far = (x, z) => Math.hypot(x, z) > 7;
+  const far = (x, z) => Math.hypot(x, z) > 7 && !pondAt(x, z, 1.5);
   const rockMats = [mat(0x8d7f6e, 0.95), mat(0x7a6b5a, 0.95), mat(0x9a8a72, 0.95)];
   rockMats.forEach((m) => { m.flatShading = true; });
   for (let i = 0; i < 46; i++) {
@@ -595,6 +677,7 @@ const anthills = [];
   leafMats.forEach((m) => { m.side = THREE.DoubleSide; });
   for (let i = 0; i < 70; i++) {
     const x = rand(-WORLD, WORLD), z = rand(-WORLD, WORLD);
+    if (pondAt(x, z, 0.5)) continue;
     const leaf = new THREE.Mesh(G.sphereLo, leafMats[i % 3]);
     leaf.scale.set(rand(0.25, 0.45), 0.02, rand(0.5, 0.8));
     leaf.position.set(x, heightAt(x, z) + 0.04, z); leaf.rotation.set(rand(-0.15, 0.15), rand(0, TAU), rand(-0.15, 0.15));
@@ -618,12 +701,51 @@ const anthills = [];
     anthills.push({ x, z });
     rocks.push({ x, z, r: 1.8, soft: true });
   }
+  // Ponds: water surface, lily pads, reeds and cattails
+  const waterMat = new THREE.MeshStandardMaterial({ color: 0x3f8a92, transparent: true, opacity: 0.8, roughness: 0.1, metalness: 0.25 });
+  const lilyMat = mat(0x4f8a2a, 0.7); lilyMat.side = THREE.DoubleSide;
+  const reedM = mat(0x6a8a3a, 0.85), cattailM = mat(0x5a3a1e, 0.95), flowerM = mat(0xffe6f0, 0.6);
+  for (const q of ponds) {
+    const geo = new THREE.CircleGeometry(q.r * 1.03, 56);
+    const pos = geo.attributes.position;
+    for (let i = 1; i < pos.count; i++) {
+      const px = pos.getX(i), py = pos.getY(i), a = Math.atan2(py, px);
+      const k = 1 + 0.05 * Math.sin(3 * a + q.x) + 0.03 * Math.sin(5 * a + q.z);
+      pos.setXY(i, px * k, py * k);
+    }
+    const w = new THREE.Mesh(geo, waterMat);
+    w.rotation.x = -Math.PI / 2; w.position.set(q.x, q.level, q.z); w.receiveShadow = true;
+    scene.add(w);
+    const pads = 3 + Math.floor(Math.random() * 4);
+    for (let i = 0; i < pads; i++) {
+      const a = rand(0, TAU), d = rand(0.5, q.r * 0.8), s = rand(0.35, 0.65);
+      const pad = new THREE.Mesh(new THREE.CircleGeometry(s, 18, 0.3, TAU - 0.5), lilyMat);
+      pad.rotation.set(-Math.PI / 2, 0, rand(0, TAU)); pad.position.set(q.x + Math.cos(a) * d, q.level + 0.015, q.z + Math.sin(a) * d);
+      scene.add(pad);
+      if (Math.random() < 0.3) { const fl = ell(0.1, 0.07, 0.1, flowerM, G.sphereLo, false); fl.position.set(pad.position.x, q.level + 0.08, pad.position.z); scene.add(fl); }
+    }
+    const reeds = Math.floor(q.r * 4);
+    for (let i = 0; i < reeds; i++) {
+      const a = rand(0, TAU), d = q.r * rand(0.92, 1.2);
+      const x = q.x + Math.cos(a) * d, z = q.z + Math.sin(a) * d, y = Math.min(heightAt(x, z), q.level + 0.05);
+      const hgt = rand(1, 2.3), lean = rand(-0.25, 0.25);
+      const top = V3(x + lean, y + hgt, z + lean * 0.5);
+      scene.add(seg(V3(x, y, z), top, rand(0.025, 0.04), reedM, true));
+      if (Math.random() < 0.4) { const ct = ell(0.07, 0.2, 0.07, cattailM, G.sphereLo, true); ct.position.copy(top).add(V3(0, -0.15, 0)); scene.add(ct); }
+    }
+  }
 })();
 
-function collideRocks(o, radius) {
+function collideRocks(o, radius, swim = false) {
   for (const r of rocks) {
     const dx = o.x - r.x, dz = o.z - r.z, d = Math.hypot(dx, dz), min = r.r + radius;
     if (d < min && d > 0.0001) { o.x = r.x + dx / d * min; o.z = r.z + dz / d * min; }
+  }
+  if (!swim) {
+    for (const q of ponds) {
+      const dx = o.x - q.x, dz = o.z - q.z, d = Math.hypot(dx, dz), min = q.r + radius;
+      if (d < min && d > 0.0001) { o.x = q.x + dx / d * min; o.z = q.z + dz / d * min; }
+    }
   }
   o.x = clamp(o.x, -WORLD + 1, WORLD - 1);
   o.z = clamp(o.z, -WORLD + 1, WORLD - 1);
@@ -672,7 +794,7 @@ const particles = (() => {
   }
   return { emit, update };
 })();
-const SAND = 0xd9b77a, GOO = 0xb8d040, SPARK = 0xfff2a0;
+const SAND = 0xd9b77a, GOO = 0xb8d040, SPARK = 0xfff2a0, WATER = 0x9fdcff;
 
 // ============================================================
 // Decals (shadows, telegraphs, rings)
@@ -684,6 +806,34 @@ function decal(geo, color, opacity) {
   return m;
 }
 const CIRCLE = new THREE.CircleGeometry(1, 28);
+// Expanding rings on water surfaces
+const ripples = (() => {
+  const list = [];
+  const geo = new THREE.RingGeometry(0.85, 1, 32);
+  function add(x, z, y, size = 1) {
+    let r = list.find((o) => !o.m.visible);
+    if (!r) {
+      if (list.length >= 30) return;
+      const m = decal(geo, 0xe8fbff, 0); scene.add(m); r = { m }; list.push(r);
+    }
+    r.t = 0; r.size = size; r.m.visible = true; r.m.position.set(x, y + 0.02, z);
+  }
+  function update(dt) {
+    for (const r of list) {
+      if (!r.m.visible) continue;
+      r.t += dt;
+      const u = r.t / 1.2;
+      r.m.scale.setScalar(r.size * (0.3 + u * 1.2));
+      r.m.material.opacity = 0.5 * (1 - u);
+      if (u >= 1) r.m.visible = false;
+    }
+  }
+  return { add, update };
+})();
+function splash(x, y, z, n) {
+  particles.emit(x, y + 0.05, z, n, WATER, { speed: 2.2, up: 3, size: 0.06, life: 0.6 });
+  ripples.add(x, z, y, 1.2);
+}
 // Selection ring under the targeted enemy & click marker
 const targetRing = decal(new THREE.RingGeometry(0.85, 1, 32), 0xff4a2a, 0.8);
 targetRing.visible = false; scene.add(targetRing);
@@ -748,7 +898,7 @@ function ambientStart() {
   for (const f of [55, 55.6, 82.4]) {
     const o = a.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; o.connect(droneLp); o.start();
   }
-  amb = { master, muffle, windBp, windGain, droneLp, droneGain, t: 0, chirpT: 1, birdT: rand(6, 14), beatT: 0, tension: 0 };
+  amb = { master, muffle, windBp, windGain, droneLp, droneGain, t: 0, chirpT: 1, birdT: rand(6, 14), frogT: 3, beatT: 0, tension: 0 };
 }
 function cricket(vol) {
   const f = rand(4200, 4900), n = 3 + Math.floor(Math.random() * 3);
@@ -759,6 +909,11 @@ function distantBird(vol) {
   tone(f, 0.12, 'sine', vol, 0, f * 1.35, amb.master);
   tone(f * 1.25, 0.18, 'sine', vol * 0.8, 0.16, f * 0.9, amb.master);
   if (Math.random() < 0.5) tone(f * 1.1, 0.1, 'sine', vol * 0.7, 0.4, f * 1.4, amb.master);
+}
+function frog(vol) {
+  const f = rand(110, 160);
+  tone(f, 0.09, 'square', vol, 0, f * 0.7, amb.master);
+  tone(f * 0.95, 0.12, 'square', vol, 0.13, f * 0.65, amb.master);
 }
 function heartbeat(vol) {
   tone(60, 0.12, 'sine', vol, 0, 40, amb.master);
@@ -785,7 +940,7 @@ function updateAmbient(dt) {
   let threat = 0;
   if (state === 'playing') {
     for (const e of entities) {
-      if (e.dead || !e.t.hostile) continue;
+      if (e.dead || !e.t.hostile || (e.t.aquatic && !e.aggro)) continue;
       const d = dist(e, p);
       if (d < 18) threat += (e.t.boss ? 3 : e.aggro ? 1 : 0.5) * (1 - d / 18);
     }
@@ -806,6 +961,13 @@ function updateAmbient(dt) {
   if (amb.birdT <= 0) {
     amb.birdT = rand(8, 20);
     if (calm > 0.5) distantBird(0.012 * calm);
+  }
+  // frogs croak when you're near a pond
+  amb.frogT -= dt;
+  if (amb.frogT <= 0) {
+    amb.frogT = rand(1.5, 5);
+    const q = ponds.find((o) => Math.hypot(o.x - p.x, o.z - p.z) < o.r + 12);
+    if (q && calm > 0.3) frog(0.03 * calm);
   }
   // heartbeat when health is low
   if (state === 'playing' && p.hp / p.maxHp < 0.3) {
@@ -829,6 +991,8 @@ const SFX = {
   bird: () => { tone(1800, 0.35, 'sawtooth', 0.06, 0, 900); tone(1600, 0.4, 'sawtooth', 0.05, 0.3, 700); },
   quake: () => { noise(1.2, 0.35, 120, 0, 0.4); tone(55, 1.0, 'sawtooth', 0.15, 0, 30); },
   buzz: () => tone(210, 0.5, 'sawtooth', 0.05, 0, 330),
+  dive: () => { tone(420, 0.45, 'sawtooth', 0.05, 0, 160); noise(0.4, 0.12, 1800, 0, 0.6); },
+  splash: () => { noise(0.25, 0.15, 900, 0, 0.7); tone(300, 0.12, 'sine', 0.05, 0, 600); },
   boss: () => { tone(110, 0.6, 'sawtooth', 0.1, 0, 80); tone(82, 0.8, 'sawtooth', 0.1, 0.4, 60); },
   over: () => [0, -3, -7, -12].forEach((s, i) => tone(330 * Math.pow(2, s / 12), 0.35, 'triangle', 0.12, i * 0.25)),
 };
@@ -878,7 +1042,7 @@ const player = {
   attackCd: 0, snapT: 0, revealT: 0, invuln: 0,
   moveTarget: null, target: null, holding: null,
   score: 0, combo: 0, comboT: 0, power: 0,
-  buffs: { speed: 0, jaws: 0, deep: 0, shield: 0, lure: 0 },
+  buffs: { speed: 0, jaws: 0, deep: 0, shield: 0, lure: 0, swim: 0 },
   walkPhase: 0, moving: 0,
   stats: { ants: 0, enemies: 0, time: 0 },
 };
@@ -898,12 +1062,14 @@ function spawnEntity(type, x, z) {
     case 'spider': model = buildSpider(); break;
     case 'wasp': model = buildWasp(); break;
     case 'mantis': model = buildMantis(); break;
+    case 'nymph': model = buildNymph(); break;
+    case 'dragonfly': model = buildDragonfly(); break;
   }
   const sc = t.scale * (type === 'ant' ? rand(0.85, 1.15) : 1);
   model.root.scale.setScalar(sc);
   scene.add(model.root);
   const e = {
-    type, t, model, x, z, alt: t.flying ? 3.5 : 0, heading: rand(0, TAU),
+    type, t, model, x, z, alt: t.flying ? (type === 'dragonfly' ? 4.5 : 3.5) : 0, heading: rand(0, TAU),
     hp: t.hp, maxHp: t.hp, sc,
     state: t.flying ? 'patrol' : null, stT: 0, cdT: rand(0.5, 1.5), leapCd: 0,
     aggro: false, lostT: 0, last: null, goal: null, wanderT: 0,
@@ -918,6 +1084,10 @@ function spawnEntity(type, x, z) {
   if (t.flying) {
     e.shadow = decal(CIRCLE, 0x000000, 0.3); e.shadow.scale.setScalar(0.5); scene.add(e.shadow);
   }
+  if (type === 'dragonfly') {
+    e.mark = decal(new THREE.RingGeometry(0.9, 1.3, 28), 0xff2a1a, 0); e.mark.visible = false; scene.add(e.mark);
+    e.dives = 0; e.hiddenT = 0;
+  }
   if (type === 'mantis') {
     const tele = decal(new THREE.CircleGeometry(t.range / sc, 24, -Math.PI / 2 - 0.75, 1.5), 0xff2a1a, 0);
     tele.position.y = 0.12; model.root.add(tele);
@@ -929,6 +1099,7 @@ function spawnEntity(type, x, z) {
 function removeEntity(e) {
   scene.remove(e.model.root);
   if (e.shadow) scene.remove(e.shadow);
+  if (e.mark) scene.remove(e.mark);
   if (e.bar) e.bar.remove();
   e.model.root.traverse((o) => { if (o.material && o.material.dispose && !o.material.shared) o.material.dispose(); });
   const i = entities.indexOf(e); if (i >= 0) entities.splice(i, 1);
@@ -936,7 +1107,7 @@ function removeEntity(e) {
   if (player.holding === e) player.holding = null;
 }
 function flash(e, color, t = 0.15) { e.flashT = t; e.flashColor = color; }
-function hittable(e) { return !e.dead && (!e.t.flying || e.alt < 1.7); }
+function hittable(e) { return !e.dead && (!e.t.flying || e.alt < 1.7) && (!e.t.aquatic || player.buffs.swim > 0); }
 
 function playerVisibleTo(e, d) {
   if (state !== 'playing') return false;
@@ -961,7 +1132,10 @@ function faceToward(e, tx, tz, dt, rate = 10) {
 function wander(e, dt, mul = 0.45) {
   e.wanderT -= dt;
   if (e.wanderT <= 0 || !e.goal) {
-    e.goal = { x: clamp(e.x + rand(-10, 10), -WORLD + 3, WORLD - 3), z: clamp(e.z + rand(-10, 10), -WORLD + 3, WORLD - 3) };
+    for (let i = 0; i < 4; i++) {
+      e.goal = { x: clamp(e.x + rand(-10, 10), -WORLD + 3, WORLD - 3), z: clamp(e.z + rand(-10, 10), -WORLD + 3, WORLD - 3) };
+      if (!pondAt(e.goal.x, e.goal.z, 1)) break;
+    }
     e.wanderT = rand(3, 7);
   }
   const d = moveToward(e, e.goal.x, e.goal.z, e.t.speed * mul, dt);
@@ -972,7 +1146,7 @@ function wander(e, dt, mul = 0.45) {
 function pitInfluence(e, dt) {
   const p = player;
   const pit = p.burrowed ? p.pit : null;
-  if (!pit || e.t.flying || e.dead || e.leap) { e.trapped = false; return false; }
+  if (!pit || e.t.flying || e.t.aquatic || e.dead || e.leap) { e.trapped = false; return false; }
   const dx = pit.x - e.x, dz = pit.z - e.z, d = Math.hypot(dx, dz);
   if (d > pit.r) { e.trapped = false; return false; }
   const power = pit.depth * 4 * (p.buffs.deep > 0 ? 1.3 : 1) * (0.7 + 0.3 * (1 - d / pit.r));
@@ -1047,8 +1221,8 @@ function killEntity(e, src) {
     if (e.t.boss) { spawnPowerup(null, e.x + 1.5, e.z); spawnPowerup('honey', e.x - 1.5, e.z); }
   }
   if (e.t.boss) {
-    $('bossbar').classList.add('hidden');
-    showMsg('Bönsyrsan besegrad!', '+' + pts + ' poäng', 3);
+    if (!entities.some((o) => o !== e && !o.dead && o.t.boss)) $('bossbar').classList.add('hidden');
+    showMsg(e.t.defName + ' besegrad!', '+' + pts + ' poäng', 3);
     shake = 0.6;
   }
 }
@@ -1104,7 +1278,9 @@ function updateAnt(e, dt) {
       if (Math.random() < 0.35) { const h = anthills[Math.floor(Math.random() * anthills.length)]; e.goal = { x: h.x, z: h.z }; }
       else e.goal = { x: clamp(p.x + rand(-22, 22), -WORLD + 3, WORLD - 3), z: clamp(p.z + rand(-22, 22), -WORLD + 3, WORLD - 3) };
       e.wanderT = rand(6, 14);
+      if (pondAt(e.goal.x, e.goal.z, 1)) e.goal = null;
     }
+    if (!e.goal) return;
     const dd = moveToward(e, e.goal.x, e.goal.z, e.t.speed * 0.8, dt);
     e.heading += Math.sin(e.phase * 0.7) * dt * 1.2; // wobble
     if (dd < 1) e.goal = null;
@@ -1228,6 +1404,145 @@ function updateWasp(e, dt) {
   }
 }
 
+function updateNymph(e, dt) {
+  const p = player, q = e.pond, t = e.t;
+  const d = dist(e, p);
+  e.cdT -= dt;
+  const pd = Math.hypot(p.x - q.x, p.z - q.z);
+  const swimmingHere = p.buffs.swim > 0 && pd < q.r;
+  const vis = playerVisibleTo(e, d);
+  const lured = vis && (swimmingHere || pd < q.r + 2.0);
+  let emerge = 0;
+  if (e.stun > 0) {
+    e.stun -= dt;
+  } else if (e.state === 'windup') {
+    e.stT -= dt; emerge = 0.4;
+    faceToward(e, p.x, p.z, dt, 10);
+    if (e.stT <= 0) {
+      e.state = 'strike'; e.stT = 0.25;
+      const reach = (swimmingHere ? 1.3 : t.range) + p.scale * 0.3;
+      if (dist(e, p) < reach && playerVisibleTo(e, d)) hurtPlayer(t.dmg, t.name);
+      splash(e.x, q.level, e.z, 6);
+    }
+  } else if (e.state === 'strike') {
+    e.stT -= dt; emerge = 0.4;
+    if (e.stT <= 0) { e.state = null; e.cdT = t.cd; }
+  } else if (lured) {
+    e.aggro = true;
+    // swim to the spot of the pond closest to the player
+    let tx = p.x, tz = p.z;
+    const max = q.r - 0.6, dx = tx - q.x, dz = tz - q.z, dd = Math.hypot(dx, dz);
+    if (dd > max) { tx = q.x + dx / dd * max; tz = q.z + dz / dd * max; }
+    moveToward(e, tx, tz, t.speed, dt);
+    emerge = 0.15;
+    if (d < (swimmingHere ? 1.3 : t.range) + p.scale * 0.3 && e.cdT <= 0) {
+      e.state = 'windup'; e.stT = t.windup; flash(e, 0xff3000, t.windup);
+      SFX.splash();
+    }
+  } else {
+    e.aggro = false;
+    e.wanderT -= dt;
+    if (!e.goal || e.wanderT <= 0) {
+      const a = rand(0, TAU), r = rand(0, q.r * 0.7);
+      e.goal = { x: q.x + Math.cos(a) * r, z: q.z + Math.sin(a) * r }; e.wanderT = rand(2, 5);
+    }
+    moveToward(e, e.goal.x, e.goal.z, t.speed * 0.35, dt);
+  }
+  e.alt = lerp(e.alt, emerge, Math.min(1, dt * 8));
+  if (Math.random() < dt * (e.moveSpeed > 0.5 ? 1.5 : 0.3)) ripples.add(e.x, e.z, q.level, 0.6);
+}
+
+function startLanding(e) {
+  const p = player, a = rand(0, TAU), r = rand(2.5, 4.5) * (p.burrowed ? 0.8 : 1);
+  const o = { x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r };
+  collideRocks(o, 1);
+  e.land = o; e.state = 'landing'; e.hiddenT = 0;
+}
+function updateDragonfly(e, dt) {
+  const p = player, t = e.t, d = dist(e, p);
+  const vis = playerVisibleTo(e, d);
+  e.cdT -= dt;
+  e.hiddenT = vis ? 0 : e.hiddenT + dt;
+  if (e.stun > 0) {
+    if (e.state !== 'landed') { e.state = 'landed'; e.stT = e.stun + 1.5; e.dives = 0; }
+    e.stun = 0;
+  }
+  switch (e.state) {
+    case 'patrol': {
+      e.ang += dt;
+      moveToward(e, p.x + Math.cos(e.ang) * 9, p.z + Math.sin(e.ang) * 9, t.speed, dt);
+      e.alt = lerp(e.alt, 4.5, dt * 2);
+      if (e.dives >= 3 || e.hiddenT > 4) { startLanding(e); break; }
+      if (vis && e.cdT <= 0 && d < t.sight) {
+        e.state = 'aim'; e.stT = 0.9; e.target = { x: p.x, z: p.z };
+        flash(e, 0xff3000, 0.9); SFX.buzz();
+      }
+      break;
+    }
+    case 'aim': {
+      e.stT -= dt;
+      if (e.stT > 0.35) e.target = { x: p.x, z: p.z }; // tracks you, then locks on
+      faceToward(e, e.target.x, e.target.z, dt, 8);
+      e.alt = lerp(e.alt, 4.8, dt * 3);
+      if (!vis && e.stT > 0.35) { e.state = 'patrol'; e.cdT = 1; break; }
+      if (e.stT <= 0) {
+        const dx = e.target.x - e.x, dz = e.target.z - e.z, l = Math.max(0.5, Math.hypot(dx, dz));
+        e.dive = { sx: e.x, sz: e.z, sa: e.alt, tx: e.target.x, tz: e.target.z, ex: e.target.x + dx / l * 7, ez: e.target.z + dz / l * 7, u: 0, len: l + 7, uT: l / (l + 7), hit: false };
+        e.state = 'dive';
+        SFX.dive();
+      }
+      break;
+    }
+    case 'dive': {
+      const D = e.dive;
+      D.u = Math.min(1, D.u + 20 * dt / D.len);
+      e.x = lerp(D.sx, D.ex, D.u); e.z = lerp(D.sz, D.ez, D.u);
+      const k = D.u < D.uT ? 1 - D.u / D.uT : (D.u - D.uT) / (1 - D.uT);
+      e.alt = 0.5 + (D.sa - 0.5) * Math.min(1, k * 1.3);
+      e.heading = Math.atan2(D.ex - D.sx, D.ez - D.sz);
+      if (!D.hit && e.alt < 1.5 && dist(e, p) < 1.2 + p.scale * 0.4) {
+        D.hit = true;
+        if (playerVisibleTo(e, 0)) hurtPlayer(t.dmg, t.name);
+        else floatText('Skyddad i hålet!', p.x, heightAt(p.x, p.z) + 1.6, p.z, '#7cff8a', 16);
+      }
+      if (D.u >= 1) { e.dives++; e.state = 'patrol'; e.cdT = rand(1.2, 2.2); }
+      break;
+    }
+    case 'landing': {
+      const dd = moveToward(e, e.land.x, e.land.z, t.speed * 0.7, dt);
+      e.alt = lerp(e.alt, 0.6, dt * 2.5);
+      if (dd < 0.25 && e.alt < 0.8) {
+        e.state = 'landed'; e.stT = 4; e.dives = 0;
+        floatText('Landad – anfall!', e.x, heightAt(e.x, e.z) + 1.6, e.z, '#ffd27a', 18);
+        particles.emit(e.x, heightAt(e.x, e.z), e.z, 10, SAND, { speed: 2, up: 1.5 });
+      }
+      break;
+    }
+    case 'landed': {
+      e.alt = lerp(e.alt, 0.6, dt * 6);
+      e.stT -= dt;
+      if (e.stT <= 0) { e.state = 'takeoff'; e.stT = 0.8; SFX.buzz(); }
+      break;
+    }
+    case 'takeoff': {
+      e.alt = lerp(e.alt, 4.5, dt * 3);
+      e.stT -= dt;
+      if (e.stT <= 0) { e.state = 'patrol'; e.cdT = 1; }
+      break;
+    }
+  }
+  if (e.mark) {
+    const show = e.state === 'aim' || (e.state === 'dive' && e.dive.u < e.dive.uT);
+    e.mark.visible = show;
+    if (show) {
+      const tx = e.state === 'aim' ? e.target.x : e.dive.tx, tz = e.state === 'aim' ? e.target.z : e.dive.tz;
+      e.mark.position.set(tx, heightAt(tx, tz) + 0.08, tz);
+      e.mark.material.opacity = 0.5 + 0.3 * Math.sin(e.phase * 20);
+      e.mark.scale.setScalar(1.2 + p.scale * 0.3);
+    }
+  }
+}
+
 function updateEntities(dt) {
   const p = player;
   for (let i = entities.length - 1; i >= 0; i--) {
@@ -1237,7 +1552,7 @@ function updateEntities(dt) {
       e.deathT += dt;
       const u = e.deathT / 1.0;
       e.model.root.rotation.z = Math.min(Math.PI, u * 8);
-      e.model.root.position.y = heightAt(e.x, e.z) + (e.t.flying ? Math.max(0, e.alt * (1 - u * 3)) : 0) - u * 0.6;
+      e.model.root.position.y = (e.t.aquatic ? e.pond.level - 0.3 : heightAt(e.x, e.z)) + (e.t.flying ? Math.max(0, e.alt * (1 - u * 3)) : 0) - u * 0.6;
       e.model.root.scale.setScalar(e.sc * Math.max(0.01, 1 - u));
       if (e.shadow) e.shadow.visible = false;
       if (u >= 1) removeEntity(e);
@@ -1257,13 +1572,18 @@ function updateEntities(dt) {
     } else if (!pitInfluence(e, dt)) {
       if (e.type === 'ant') updateAnt(e, dt);
       else if (e.type === 'wasp') updateWasp(e, dt);
+      else if (e.type === 'nymph') updateNymph(e, dt);
+      else if (e.type === 'dragonfly') updateDragonfly(e, dt);
       else updateGroundHostile(e, dt);
     }
     if (e.dead) continue;
     // separation
-    if (!e.t.flying && !e.held) {
+    if (e.t.aquatic) {
+      const q = e.pond, dx = e.x - q.x, dz = e.z - q.z, dd = Math.hypot(dx, dz), max = q.r - 0.5;
+      if (dd > max) { e.x = q.x + dx / dd * max; e.z = q.z + dz / dd * max; }
+    } else if (!e.t.flying && !e.held) {
       for (const o of entities) {
-        if (o === e || o.dead || o.t.flying || o.held) continue;
+        if (o === e || o.dead || o.t.flying || o.t.aquatic || o.held) continue;
         const dx = e.x - o.x, dz = e.z - o.z, dd = dx * dx + dz * dz, min = (e.t.radius + o.t.radius) * 0.8;
         if (dd < min * min && dd > 1e-6) { const l = Math.sqrt(dd), push = (min - l) * 0.5; e.x += dx / l * push; e.z += dz / l * push; }
       }
@@ -1285,7 +1605,7 @@ function updateEntities(dt) {
 
 function poseEntity(e, dt) {
   const M = e.model, R = M.root;
-  const gy = heightAt(e.x, e.z);
+  const gy = e.t.aquatic ? e.pond.level - 0.32 : heightAt(e.x, e.z);
   R.position.set(e.x, gy + e.alt, e.z);
   R.rotation.y = e.heading;
   const struggling = e.trapped || e.held;
@@ -1297,14 +1617,25 @@ function poseEntity(e, dt) {
     for (const w of M.parts.wings) w.piv.rotation.z = w.s * Math.sin(e.phase * 60) * 0.7;
     M.body.position.y = Math.sin(e.phase * 4) * 0.08;
     M.body.rotation.x = e.state === 'dive' ? 0.6 : e.state === 'aim' ? -0.3 : 0.1;
-    if (e.shadow) {
-      e.shadow.visible = true;
-      e.shadow.position.set(e.x, gy + 0.05, e.z);
-      const danger = e.state === 'aim' || e.state === 'dive';
-      e.shadow.material.color.setHex(danger ? 0xff2000 : 0x000000);
-      e.shadow.material.opacity = danger ? 0.45 : 0.25;
-      e.shadow.scale.setScalar(danger ? 1.3 : 0.5 + 0.1 * (4 - e.alt));
-    }
+  }
+  if (e.type === 'dragonfly') {
+    const flying = e.state !== 'landed';
+    for (const w of M.parts.wings) w.piv.rotation.z = flying ? w.s * Math.sin(e.phase * 45 + w.ph) * 0.6 : -w.s * 0.08;
+    M.body.position.y = flying ? Math.sin(e.phase * 3) * 0.1 : 0;
+    M.body.rotation.x = e.state === 'dive' ? (e.dive.u < e.dive.uT ? 0.5 : -0.4) : e.state === 'aim' ? -0.25 : 0;
+  }
+  if (e.type === 'nymph') {
+    const ext = e.state === 'strike' ? 2.6 : e.state === 'windup' ? 0.6 : 1;
+    M.parts.mask.scale.z = lerp(M.parts.mask.scale.z, ext, Math.min(1, dt * (e.state === 'strike' ? 40 : 10)));
+  }
+  if (e.shadow) {
+    e.shadow.visible = true;
+    e.shadow.position.set(e.x, gy + 0.05, e.z);
+    const danger = e.type === 'wasp' && (e.state === 'aim' || e.state === 'dive');
+    const base = e.type === 'dragonfly' ? 1.0 : 0.5;
+    e.shadow.material.color.setHex(danger ? 0xff2000 : 0x000000);
+    e.shadow.material.opacity = danger ? 0.45 : 0.25;
+    e.shadow.scale.setScalar(danger ? 1.3 : base + 0.1 * Math.max(0, 4 - e.alt));
   }
   if (e.type === 'mantis') {
     const raise = e.state === 'windup' ? -1.1 : (e.strikeT > 0 ? 0.9 : -0.2 + Math.sin(e.phase * 2) * 0.08);
@@ -1312,7 +1643,7 @@ function poseEntity(e, dt) {
     for (const a of M.parts.arms) a.rotation.x = lerp(a.rotation.x, raise, Math.min(1, dt * (e.strikeT > 0 ? 30 : 6)));
   }
   if (e.state === 'windup' && !e.t.boss) M.body.rotation.x = -0.35; // rear up
-  else if (e.type !== 'wasp') M.body.rotation.x = lerp(M.body.rotation.x, 0, Math.min(1, dt * 8));
+  else if (e.type !== 'wasp' && e.type !== 'dragonfly') M.body.rotation.x = lerp(M.body.rotation.x, 0, Math.min(1, dt * 8));
   if (e.leap) M.body.rotation.x = -0.3;
   // flash
   if (e.flashT > 0) {
@@ -1442,7 +1773,7 @@ function updateBird(dt) {
         if (p.burrowed) { floatText('Undvek fågeln! +40', p.x, gy + 1.8, p.z, '#7cff8a', 20); addScore(40); }
         else hurtPlayer(30, 'Fågel');
       }
-      for (const e of entities) if (!e.dead && !e.t.boss && Math.hypot(e.x - b.x, e.z - b.z) < BIRD_R) { e.dead = true; e.deathT = 0; if (e.bar) { e.bar.remove(); e.bar = null; } }
+      for (const e of entities) if (!e.dead && !e.t.boss && !e.t.aquatic && Math.hypot(e.x - b.x, e.z - b.z) < BIRD_R) { e.dead = true; e.deathT = 0; if (e.bar) { e.bar.remove(); e.bar = null; } }
       b.state = 'leave'; b.t = 0;
       sh.material.color.setHex(0x000000); sh.material.opacity = 0;
     }
@@ -1493,6 +1824,11 @@ function toggleBurrow() {
   const p = player;
   if (p.action || state !== 'playing') return;
   if (!p.burrowed) {
+    if (pondAt(p.x, p.z, 1.2)) {
+      floatText('Kan inte gräva i vatten!', p.x, heightAt(p.x, p.z) + 1.6, p.z, '#7fd8ff', 16);
+      SFX.whiff();
+      return;
+    }
     p.action = 'sinking'; p.actionT = 0.45; p.moveTarget = null; p.target = null;
     SFX.dig();
   } else emerge();
@@ -1533,6 +1869,11 @@ function quake() {
     if (e.dead) continue;
     const d = dist(e, p);
     if (d > 11) continue;
+    if (e.t.aquatic) {
+      e.stun = 2.2;
+      if (p.buffs.swim > 0) damageEntity(e, p.dmgNow() * 2, 'quake');
+      continue;
+    }
     if (!e.t.boss && !e.t.flying) {
       const pull = Math.min(d - 1, 5);
       if (d > 0.01) { e.x -= (e.x - p.x) / d * pull; e.z -= (e.z - p.z) / d * pull; }
@@ -1553,6 +1894,16 @@ function updatePlayer(dt) {
   p.invuln = Math.max(0, p.invuln - dt);
   p.comboT -= dt; if (p.comboT <= 0) p.combo = 0;
   for (const k in p.buffs) p.buffs[k] = Math.max(0, p.buffs[k] - dt);
+  // swimming: only while the water-drop power lasts
+  const inPond = pondAt(p.x, p.z);
+  if (inPond && p.buffs.swim <= 0) {
+    collideRocks(p, 0.5 * p.scale);
+    splash(p.x, inPond.level, p.z, 14);
+    showMsg('💧 Kraften tog slut', 'Du kravlar upp på land.', 1.6);
+  }
+  p.swimPond = p.buffs.swim > 0 ? pondAt(p.x, p.z) : null;
+  if (p.swimPond && p.buffs.swim < 3 && !p.swimWarned) { p.swimWarned = true; showMsg('💧 Snart slut på kraften!', 'Simma mot land.', 1.5); }
+  if (p.buffs.swim >= 3) p.swimWarned = false;
 
   // scale follows stage
   p.scale = lerp(p.scale, S.scale, Math.min(1, dt * 3));
@@ -1609,11 +1960,13 @@ function updatePlayer(dt) {
 
   const ox = p.x, oz = p.z;
   if (wantMove && !p.action && !p.burrowed) {
-    const spd = S.speed * (p.buffs.speed > 0 ? 1.6 : 1);
+    const spd = S.speed * (p.buffs.speed > 0 ? 1.6 : 1) * (p.swimPond ? 0.85 : 1);
     p.x += mx * spd * dt; p.z += mz * spd * dt;
     p.heading = angleLerp(p.heading, Math.atan2(mx, mz), Math.min(1, dt * 12));
-    collideRocks(p, 0.5 * p.scale);
-    if (Math.random() < dt * 6) particles.emit(p.x, heightAt(p.x, p.z) + 0.05, p.z, 1, SAND, { speed: 0.6, up: 0.8, size: 0.06, life: 0.5 });
+    collideRocks(p, 0.5 * p.scale, p.buffs.swim > 0);
+    const wq = pondAt(p.x, p.z);
+    if (wq) { if (Math.random() < dt * 5) ripples.add(p.x, p.z, wq.level, 0.9); }
+    else if (Math.random() < dt * 6) particles.emit(p.x, heightAt(p.x, p.z) + 0.05, p.z, 1, SAND, { speed: 0.6, up: 0.8, size: 0.06, life: 0.5 });
   }
   p.moving = lerp(p.moving, Math.hypot(p.x - ox, p.z - oz) / Math.max(dt, 1e-4), Math.min(1, dt * 10));
 
@@ -1634,7 +1987,8 @@ function updatePlayer(dt) {
 
 function posePlayer(dt) {
   const p = player, M = p.model;
-  const gy = heightAt(p.x, p.z);
+  const wq = pondAt(p.x, p.z);
+  const gy = wq ? wq.level - 0.2 * p.scale + Math.sin(performance.now() * 0.004) * 0.03 : heightAt(p.x, p.z);
   M.root.position.set(p.x, gy - p.sink * 0.42 * p.scale, p.z);
   M.root.rotation.y = p.heading;
   M.root.scale.setScalar(p.scale);
@@ -1663,21 +2017,29 @@ function posePlayer(dt) {
 // ============================================================
 let state = 'menu';
 let elapsed = 0, lastLevel = 1, bossLevels = new Set();
-const timers = { ant: 0, enemy: 3, power: 8 };
+const timers = { ant: 0, enemy: 3, power: 8, nymph: 12 };
 function currentLevel() { return 1 + Math.floor(elapsed / 45); }
 const LEVEL_NOTES = {
   2: 'Skalbaggar dyker upp. De är pansrade, så använd bakhåll!',
   3: 'Vargspindlar jagar snabbt. Akta dig även för fåglar!',
   4: 'Steklar anfaller från luften!',
   5: 'Något stort närmar sig...',
+  6: 'Larverna i vattenpölarna blir fler. Håll avstånd till kanten!',
+  7: 'Ett surr hörs över vattnet...',
 };
+function spawnNymph(q) {
+  const a = rand(0, TAU), r = rand(0, q.r * 0.6);
+  const e = spawnEntity('nymph', q.x + Math.cos(a) * r, q.z + Math.sin(a) * r);
+  e.pond = q; e.alt = 0;
+  return e;
+}
 
 function spawnPointNear(minD, maxD) {
   const p = player;
   for (let tries = 0; tries < 20; tries++) {
     const a = rand(0, TAU), d = rand(minD, maxD);
     const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
-    if (Math.abs(x) < WORLD - 3 && Math.abs(z) < WORLD - 3) return { x, z };
+    if (Math.abs(x) < WORLD - 3 && Math.abs(z) < WORLD - 3 && !pondAt(x, z, 1.5)) return { x, z };
   }
   return { x: clamp(p.x + rand(-20, 20), -WORLD + 3, WORLD - 3), z: clamp(p.z + rand(-20, 20), -WORLD + 3, WORLD - 3) };
 }
@@ -1700,7 +2062,7 @@ function updateSpawns(dt) {
     spawnEntity('ant', pt.x, pt.z);
   }
   // hostiles
-  const hostiles = entities.filter((e) => e.t.hostile && !e.dead && !e.t.boss).length;
+  const hostiles = entities.filter((e) => e.t.hostile && !e.dead && !e.t.boss && !e.t.aquatic).length;
   timers.enemy -= dt;
   if (timers.enemy <= 0) {
     timers.enemy = Math.max(2.5, 8 - level * 0.5);
@@ -1718,15 +2080,47 @@ function updateSpawns(dt) {
     const boss = spawnEntity('mantis', pt.x, pt.z);
     boss.hp = boss.maxHp = TYPES.mantis.hp * (1 + (level - 5) * 0.2);
     boss.aggro = true; boss.lostT = 99; boss.last = { x: player.x, z: player.z };
+    $('bossName').textContent = TYPES.mantis.name;
     $('bossbar').classList.remove('hidden');
     setTimeout(() => showMsg('🦗 En bönsyrsa närmar sig!', 'Den känner vibrationer, så du kan inte gömma dig när den är nära.', 3.5), 1200);
     SFX.boss();
   }
-  // power-ups
+  // dragonfly boss every 4 levels starting at 7, rising from the nearest pond
+  if (level >= 7 && (level - 7) % 4 === 0 && !bossLevels.has('df' + level)) {
+    bossLevels.add('df' + level);
+    let q = ponds[0], qd = Infinity;
+    for (const o of ponds) { const d = Math.hypot(o.x - player.x, o.z - player.z); if (d < qd) { qd = d; q = o; } }
+    const boss = spawnEntity('dragonfly', q.x, q.z);
+    boss.hp = boss.maxHp = TYPES.dragonfly.hp * (1 + (level - 7) * 0.2);
+    boss.alt = 0.5; boss.state = 'takeoff'; boss.stT = 1.2;
+    splash(q.x, q.level, q.z, 20);
+    $('bossName').textContent = TYPES.dragonfly.name;
+    $('bossbar').classList.remove('hidden');
+    setTimeout(() => showMsg('🪰 En trollslända jagar dig!', 'Göm dig i gropen när den dyker. Hugg den när den landat.', 3.5), 600);
+    SFX.boss();
+  }
+  // nymphs repopulate the ponds (but not right next to the player)
+  timers.nymph -= dt;
+  if (timers.nymph <= 0) {
+    timers.nymph = 12;
+    const want = Math.min(4, 2 + Math.floor(level / 3));
+    for (const q of ponds) {
+      const n = entities.filter((e) => e.pond === q && !e.dead).length;
+      if (n < want && Math.hypot(q.x - player.x, q.z - player.z) > q.r + 10) spawnNymph(q);
+    }
+  }
+  // power-ups (the water drop tends to appear by a pond)
   timers.power -= dt;
   if (timers.power <= 0) {
     timers.power = rand(14, 22);
-    if (powerups.length < 4) { const pt = spawnPointNear(7, 16); spawnPowerup(null, pt.x, pt.z); }
+    if (powerups.length < 4) {
+      let q = null, qd = 30;
+      for (const o of ponds) { const d = Math.hypot(o.x - player.x, o.z - player.z); if (d < qd) { qd = d; q = o; } }
+      if (q && Math.random() < 0.35) {
+        const a = Math.atan2(player.z - q.z, player.x - q.x) + rand(-0.8, 0.8);
+        spawnPowerup('swim', q.x + Math.cos(a) * (q.r + 1.3), q.z + Math.sin(a) * (q.r + 1.3));
+      } else { const pt = spawnPointNear(7, 16); spawnPowerup(null, pt.x, pt.z); }
+    }
   }
   // birds
   if (level >= 3 && bird.state === 'idle') {
@@ -1758,9 +2152,10 @@ function resetGame() {
   for (const k in p.buffs) p.buffs[k] = 0;
   p.stats = { ants: 0, enemies: 0, time: 0 };
   elapsed = 0; lastLevel = 1; bossLevels = new Set();
-  timers.ant = 0; timers.enemy = 4; timers.power = 6;
+  timers.ant = 0; timers.enemy = 4; timers.power = 6; timers.nymph = 12;
   bird.nextT = rand(25, 40);
   for (let i = 0; i < 18; i++) { const pt = spawnPointNear(5, 22); spawnEntity('ant', pt.x, pt.z); }
+  for (const q of ponds) { spawnNymph(q); spawnNymph(q); }
   $('bossbar').classList.add('hidden');
 }
 
@@ -1781,7 +2176,7 @@ function gameOver(reason) {
   try { best = +localStorage.getItem('antlion3d.best') || 0; } catch (e) { /* ignore */ }
   const newBest = p.score > best;
   if (newBest) { best = p.score; try { localStorage.setItem('antlion3d.best', String(best)); } catch (e) { /* ignore */ } }
-  const reasons = { 'Svält': 'Du svalt ihjäl. Glöm inte att äta!', 'Fågel': 'En fågel snappade upp dig.' };
+  const reasons = { 'Trollsländelarv': 'En trollsländelarv drog ner dig i vattnet.', 'Svält': 'Du svalt ihjäl. Glöm inte att äta!', 'Fågel': 'En fågel snappade upp dig.' };
   $('overReason').textContent = reasons[reason] || ('Besegrad av: ' + reason);
   const mm = Math.floor(p.stats.time / 60), ss = String(Math.floor(p.stats.time % 60)).padStart(2, '0');
   $('overStats').innerHTML =
@@ -1928,13 +2323,16 @@ function drawMinimap() {
   for (const r of rocks) { if (r.soft) continue; const [x, z] = P(r.x, r.z); if (Math.abs(x) < R * 1.5 && Math.abs(z) < R * 1.5) { mmc.beginPath(); mmc.arc(x, z, r.r * k, 0, TAU); mmc.fill(); } }
   mmc.fillStyle = '#6b4a24';
   for (const h of anthills) { const [x, z] = P(h.x, h.z); mmc.beginPath(); mmc.arc(x, z, 2 * k, 0, TAU); mmc.fill(); }
+  mmc.fillStyle = '#3f8ac0';
+  for (const q of ponds) { const [x, z] = P(q.x, q.z); mmc.beginPath(); mmc.arc(x, z, q.r * k, 0, TAU); mmc.fill(); }
   for (const pit of pits) { const [x, z] = P(pit.x, pit.z); mmc.fillStyle = '#7a5530'; mmc.beginPath(); mmc.arc(x, z, pit.r * k, 0, TAU); mmc.fill(); }
   for (const u of powerups) { const [x, z] = P(u.x, u.z); mmc.fillStyle = POWERUPS[u.kind].color; mmc.beginPath(); mmc.arc(x, z, 7, 0, TAU); mmc.fill(); mmc.strokeStyle = '#fff'; mmc.lineWidth = 2; mmc.stroke(); }
   for (const e of entities) {
     if (e.dead) continue;
     const [x, z] = P(e.x, e.z);
     if (e.type === 'ant') { mmc.fillStyle = '#222'; mmc.fillRect(x - 2.5, z - 2.5, 5, 5); }
-    else { mmc.fillStyle = e.t.boss ? '#9bff3a' : e.t.flying ? '#ffd21a' : '#e0301a'; mmc.beginPath(); mmc.arc(x, z, e.t.boss ? 10 : 6, 0, TAU); mmc.fill(); }
+    else if (e.t.aquatic) { mmc.fillStyle = '#9ff0ff'; mmc.beginPath(); mmc.arc(x, z, 4, 0, TAU); mmc.fill(); }
+    else { mmc.fillStyle = e.type === 'dragonfly' ? '#3fd8ff' : e.t.boss ? '#9bff3a' : e.t.flying ? '#ffd21a' : '#e0301a'; mmc.beginPath(); mmc.arc(x, z, e.t.boss ? 10 : 6, 0, TAU); mmc.fill(); }
   }
   if (bird.state === 'track' || bird.state === 'lock') { const [x, z] = P(bird.x, bird.z); mmc.fillStyle = 'rgba(0,0,0,0.5)'; mmc.beginPath(); mmc.arc(x, z, BIRD_R * k, 0, TAU); mmc.fill(); }
   mmc.restore();
@@ -2027,12 +2425,17 @@ function loop(now) {
     updateHud(dt);
   } else if (state === 'menu') {
     // attract mode: ants wander around an idle antlion
-    for (const e of entities) { e.phase += dt; if (e.type === 'ant') { wander(e, dt, 0.5); collideRocks(e, 0.2); e.moveSpeed = e.t.speed * 0.5; poseEntity(e, dt); } }
+    for (const e of entities) {
+      e.phase += dt;
+      if (e.type === 'ant') { wander(e, dt, 0.5); collideRocks(e, 0.2); e.moveSpeed = e.t.speed * 0.5; poseEntity(e, dt); }
+      else if (e.type === 'nymph') { updateNymph(e, dt); poseEntity(e, dt); }
+    }
     player.walkPhase += dt; posePlayer(dt);
     player.heading += dt * 0.3;
   }
   if (state !== 'paused') {
     particles.update(dt);
+    ripples.update(dt);
     updateFloaters(dt);
     updateMarkers(dt);
     if (msgT > 0) { msgT -= dt; if (msgT <= 0) $('msg').style.opacity = '0'; }
@@ -2095,5 +2498,6 @@ window.__antlion = {
   get state() { return state; },
   get amb() { return amb; },
   updateAmbient,
-  simulate(seconds) { for (let t = 0; t < seconds && state === 'playing'; t += 1 / 60) { stepGame(1 / 60); particles.update(1 / 60); } },
+  simulate(seconds) { for (let t = 0; t < seconds && state === 'playing'; t += 1 / 60) { stepGame(1 / 60); particles.update(1 / 60); ripples.update(1 / 60); } },
+  ponds, spawnNymph, applyPowerup,
 };
