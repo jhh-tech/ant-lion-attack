@@ -44,7 +44,9 @@ Här går du själv omkring som myrlejonet på en stor sandslätt:
 - **Bakhåll:** hugg nedifrån sanden eller kliv upp bredvid en fiende för dubbel eller trippel skada.
 - **Sandskalv** (`Q`) när kraftmätaren är full.
 - **Fiender** från lätta till svåra: soldatmyror, pansrade skalbaggar, hoppande vargspindlar, störtdykande steklar, fåglar (gräv ner dig när skuggan kommer!) och bönsyrsan som boss.
-- **Kraftföremål:** honung, sockerbit, snabbfot, stålkäkar, djupgrop, pansar och feromon.
+- **Vattenpölar** där trollsländelarver lurar. Går du för nära kanten hugger de. Det går inte att gräva nära vatten.
+- **Trollsländan** är en boss som störtdyker mot dig. I gropen är du skyddad, och när den landar kan du anfalla.
+- **Kraftföremål:** honung, sockerbit, snabbfot, stålkäkar, djupgrop, pansar, feromon och vattendroppe (simma i pölarna och skada larverna en stund).
 - Du växer i sex stadier, och nivån stiger var 45:e sekund.
 
 ### Installera som app (Android & dator)

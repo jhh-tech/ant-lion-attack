@@ -1,5 +1,5 @@
 // Offline cache for Ant Lion Attack 3D. Bump VERSION whenever a cached file changes.
-const VERSION = 'antlion3d-v3';
+const VERSION = 'antlion3d-v4';
 const FILES = [
   './',
   './index.html',
